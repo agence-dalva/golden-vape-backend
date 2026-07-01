@@ -23,7 +23,7 @@ RUN apk add --no-cache dumb-init
 
 COPY --from=builder /app/apps/backend/.medusa/server ./
 
-RUN npm install --production --no-audit --no-fund && \
+RUN npm install --production --no-audit --no-fund --legacy-peer-deps && \
     npm cache clean --force
 
 EXPOSE 9000
