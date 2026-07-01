@@ -30,4 +30,4 @@ EXPOSE 9000
 
 # dumb-init gère les signaux proprement (SIGTERM → graceful shutdown)
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["sh", "-c", "NODE_ENV=production node_modules/.bin/medusa db:migrate && NODE_ENV=production node_modules/.bin/medusa start"]
+CMD ["sh", "-c", "node_modules/.bin/medusa db:migrate && node_modules/.bin/medusa start"]
