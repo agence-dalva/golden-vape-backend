@@ -37,7 +37,7 @@ export default async function importCategories({ container }: ExecArgs) {
   if (toDelete.length > 0) {
     console.log(`🗑  Suppression de ${toDelete.length} catégories existantes...`)
     await deleteProductCategoriesWorkflow(container).run({
-      input: { ids: toDelete },
+      input: toDelete,
     })
   }
 

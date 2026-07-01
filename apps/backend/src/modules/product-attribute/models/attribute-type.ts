@@ -6,7 +6,7 @@ import ProductAttributeValue from "./product-attribute-value"
 const AttributeType = model.define("attribute_type", {
   id: model.id().primaryKey(),
   name: model.text(),
-  preset_values: model.json().default([]),
+  preset_values: model.json<string[]>().default([]),
   allow_multiple: model.boolean().default(false),
   values: model.hasMany(() => ProductAttributeValue, { mappedBy: "attribute_type" }),
 })
