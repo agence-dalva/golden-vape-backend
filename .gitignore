@@ -5,4 +5,9 @@ node_modules
 .medusa/
 dist/
 .cache/
+.turbo/
 *.log
+
+# Fichiers d'import PrestaShop (données sensibles, trop lourds pour git)
+apps/backend/src/scripts/*.csv
+apps/backend/src/scripts/category_mapping.json

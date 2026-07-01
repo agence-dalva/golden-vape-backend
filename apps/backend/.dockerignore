@@ -1,0 +1,10 @@
+node_modules
+.medusa
+.env*
+*.log
+dist
+coverage
+.git
+.turbo
+src/scripts/*.csv
+src/scripts/*.json
