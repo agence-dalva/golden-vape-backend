@@ -12,7 +12,6 @@ module.exports = defineConfig({
       authCors: process.env.AUTH_CORS!,
       jwtSecret: process.env.JWT_SECRET,
       cookieSecret: process.env.COOKIE_SECRET,
-      port: parseInt(process.env.PORT || "9000"),
     }
   },
   modules: [
