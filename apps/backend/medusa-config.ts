@@ -1,10 +1,6 @@
 import { loadEnv, defineConfig } from '@medusajs/framework/utils'
-import path from 'path'
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
-
-// Résout file-s3 depuis la racine du monorepo, compatible local et prod Docker
-const fileS3Path = path.resolve(__dirname, '../../node_modules/@medusajs/file-s3')
 
 module.exports = defineConfig({
   projectConfig: {
@@ -27,7 +23,7 @@ module.exports = defineConfig({
       options: {
         providers: [
           {
-            resolve: fileS3Path,
+            resolve: "@medusajs/file-s3",
             id: "s3",
             options: {
               file_url: process.env.R2_PUBLIC_URL,
