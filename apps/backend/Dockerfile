@@ -23,8 +23,8 @@ RUN apk add --no-cache dumb-init
 
 COPY --from=builder /app/apps/backend/.medusa/server ./
 
-RUN yarn install --non-interactive --production --frozen-lockfile && \
-    yarn cache clean
+RUN npm install --production --no-audit --no-fund && \
+    npm cache clean --force
 
 EXPOSE 9000
 
