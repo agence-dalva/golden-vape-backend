@@ -10,6 +10,10 @@ yarn-error.log
 coverage
 
 !src/**
+src/scripts/category_mapping.json
+src/scripts/products_categories.csv
+src/scripts/products_clean.csv
+src/scripts/ps_images.csv
 
 ./tsconfig.tsbuildinfo
 medusa-db.sql
