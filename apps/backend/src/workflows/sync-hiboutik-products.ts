@@ -56,12 +56,18 @@ function uniqueVariantNames(sizes: { size_id: number; size_name: string }[]): Ma
 // Note : createProductsWorkflow ignore silencieusement inventory_quantity sur le variant —
 // le stock doit être appliqué après coup via createInventoryLevelsWorkflow (cf. createProductsInBatches).
 // On retourne donc en plus une map sku -> quantité voulue, à consommer une fois les variantes créées.
-function toHiboutikProductPayload(product: HiboutikProduct, detail: HiboutikProductDetail) {
+// sansSalesChannelId lié, le produit reste invisible côté store même une fois publié manuellement.
+function toHiboutikProductPayload(
+  product: HiboutikProduct,
+  detail: HiboutikProductDetail,
+  salesChannelId: string | null
+) {
   const amount = toAmount(product.product_price)
   const prices = amount > 0 ? [{ amount, currency_code: "eur" }] : []
   const title = product.product_model?.trim() || product.product_barcode!
   const stockBySize = detail.stockBySize
   const stockBySku = new Map<string, number>()
+  const sales_channels = salesChannelId ? [{ id: salesChannelId }] : undefined
 
   // detail.sizeDetails = déclinaisons réellement actives pour ce produit (contrairement à
   // product.product_size_details qui liste toutes les déclinaisons possibles du gabarit produit)
@@ -75,6 +81,7 @@ function toHiboutikProductPayload(product: HiboutikProduct, detail: HiboutikProd
         title,
         status: "draft" as const,
         metadata: { hiboutik_id: product.product_id },
+        sales_channels,
         options: [{ title: "Titre", values: ["Default"] }],
         variants: [
           {
@@ -100,6 +107,7 @@ function toHiboutikProductPayload(product: HiboutikProduct, detail: HiboutikProd
       title,
       status: "draft" as const,
       metadata: { hiboutik_id: product.product_id },
+      sales_channels,
       options: [
         {
           title: VARIANT_OPTION_TITLE,
@@ -181,6 +189,17 @@ async function applyStockToCreatedProducts(
   }
 }
 
+// Résout le canal de vente par défaut — sans lui, un produit reste invisible côté store
+// même une fois publié manuellement dans l'admin.
+async function resolveDefaultSalesChannelId(container: any): Promise<string | null> {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const { data: salesChannels } = await query.graph({
+    entity: "sales_channel",
+    fields: ["id"],
+  })
+  return salesChannels[0]?.id ?? null
+}
+
 async function createProductsInBatches(
   container: any,
   products: HiboutikProduct[]
@@ -188,11 +207,14 @@ async function createProductsInBatches(
   const BATCH_SIZE = 50
   const created: string[] = []
   const errors: { product_ref: string; message: string }[] = []
+  const salesChannelId = await resolveDefaultSalesChannelId(container)
 
   for (let i = 0; i < products.length; i += BATCH_SIZE) {
     const batch = products.slice(i, i + BATCH_SIZE)
     const detailByProduct = await fetchDetailForBatch(batch)
-    const built = batch.map((p) => toHiboutikProductPayload(p, detailByProduct.get(p.product_id)!))
+    const built = batch.map((p) =>
+      toHiboutikProductPayload(p, detailByProduct.get(p.product_id)!, salesChannelId)
+    )
     const stockBySku = new Map(built.flatMap((b) => [...b.stockBySku.entries()]))
 
     try {
