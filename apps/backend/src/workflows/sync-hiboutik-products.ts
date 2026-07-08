@@ -33,10 +33,14 @@ export function normalizeProductName(name: string): string {
   return stripped.split(/\s+/).filter(Boolean).sort().join(" ")
 }
 
-// Medusa v2 stocke les prix en unité décimale normale (10 = 10€), pas en centimes
+// Medusa v2 stocke les prix en unité décimale normale (10 = 10€), pas en centimes.
+// Le prix Hiboutik est TTC (TVA 20%) ; Medusa doit stocker du HT pour que la taxe configurée
+// sur la région France recalcule le bon TTC à l'affichage, sans double-compter la TVA.
+const VAT_RATE = 1.2
+
 function toAmount(price: string | number | null | undefined): number {
   const value = typeof price === "string" ? parseFloat(price) : price
-  return value && value > 0 ? Math.round(value * 100) / 100 : 0
+  return value && value > 0 ? Math.round((value / VAT_RATE) * 100) / 100 : 0
 }
 
 // Déduplique les noms de déclinaison (ex: "Turbo Red" apparaît deux fois chez GO MAX)
