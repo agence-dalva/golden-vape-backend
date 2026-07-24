@@ -1,11 +1,13 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { useEffect, useState, useCallback, useRef, KeyboardEvent } from "react"
+import { PresetValueBadge } from "../../components/preset-value-badge"
 
 type AttributeType = {
   id: string
   name: string
   preset_values: string[]
   allow_multiple: boolean
+  preset_value_images: Record<string, string>
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -23,6 +25,8 @@ export const config = defineRouteConfig({
 })
 
 // Composant input de tags : une valeur par entrée, supprimable avec ✕
+// Le type "Marque" (seul à supporter des logos) n'apparaît plus dans cette page — voir la page
+// dédiée "Marques" (src/admin/routes/brands/page.tsx) — donc aucune image n'est jamais affichée ici.
 const TagInput = ({
   values,
   onChange,
@@ -53,19 +57,11 @@ const TagInput = ({
       onClick={() => inputRef.current?.focus()}
     >
       {values.map((v) => (
-        <span
+        <PresetValueBadge
           key={v}
-          className="flex items-center gap-1 bg-ui-bg-subtle border border-ui-border-base rounded px-2 py-0.5 text-xs text-ui-fg-base"
-        >
-          {v}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onChange(values.filter((x) => x !== v)) }}
-            className="text-ui-fg-muted hover:text-ui-fg-error leading-none"
-          >
-            ✕
-          </button>
-        </span>
+          value={v}
+          onRemoveValue={() => onChange(values.filter((x) => x !== v))}
+        />
       ))}
       <input
         ref={inputRef}
@@ -100,7 +96,9 @@ const AttributeTypesPage = () => {
     setLoading(true)
     try {
       const res = await apiFetch<{ attribute_types: AttributeType[] }>("/admin/attribute-types")
-      setTypes(res.attribute_types)
+      // "Marque" a sa propre page dédiée (src/admin/routes/brands/page.tsx) — logos, compte de
+      // produits — donc on ne la montre plus ici pour éviter la redondance.
+      setTypes(res.attribute_types.filter((t) => t.name !== "Marque"))
     } catch (e) {
       console.error(e)
     }
@@ -285,12 +283,7 @@ const AttributeTypesPage = () => {
                         ) : (
                           <div className="flex flex-wrap gap-1">
                             {t.preset_values.map((v) => (
-                              <span
-                                key={v}
-                                className="bg-ui-bg-subtle border border-ui-border-base rounded px-2 py-0.5 text-xs text-ui-fg-base"
-                              >
-                                {v}
-                              </span>
+                              <PresetValueBadge key={v} value={v} readOnly />
                             ))}
                           </div>
                         )}

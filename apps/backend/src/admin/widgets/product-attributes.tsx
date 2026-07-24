@@ -7,6 +7,7 @@ type AttributeType = {
   name: string
   preset_values: string[]
   allow_multiple: boolean
+  preset_value_images: Record<string, string>
 }
 
 type AttributeValue = {
@@ -157,21 +158,36 @@ const ProductAttributesWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
                 <td className="py-2 text-ui-fg-base">
                   {values.length > 1 ? (
                     <div className="flex flex-wrap gap-1">
-                      {values.map((v) => (
-                        <span
-                          key={v.id}
-                          className="flex items-center gap-1 bg-ui-bg-subtle border border-ui-border-base rounded px-2 py-0.5 text-xs"
-                        >
-                          {v.value}
-                          <button
-                            onClick={() => handleDelete(v.id)}
-                            className="text-ui-fg-muted hover:text-ui-fg-error"
-                          >✕</button>
-                        </span>
-                      ))}
+                      {values.map((v) => {
+                        const imageUrl = type.preset_value_images?.[v.value]
+                        return (
+                          <span
+                            key={v.id}
+                            className="flex items-center gap-1 bg-ui-bg-subtle border border-ui-border-base rounded px-2 py-0.5 text-xs"
+                          >
+                            {imageUrl && (
+                              <img src={imageUrl} alt={v.value} className="h-4 w-4 object-contain rounded-sm bg-white" />
+                            )}
+                            {v.value}
+                            <button
+                              onClick={() => handleDelete(v.id)}
+                              className="text-ui-fg-muted hover:text-ui-fg-error"
+                            >✕</button>
+                          </span>
+                        )
+                      })}
                     </div>
                   ) : (
-                    values[0].value
+                    <span className="flex items-center gap-1.5">
+                      {type.preset_value_images?.[values[0].value] && (
+                        <img
+                          src={type.preset_value_images[values[0].value]}
+                          alt={values[0].value}
+                          className="h-4 w-4 object-contain rounded-sm bg-white"
+                        />
+                      )}
+                      {values[0].value}
+                    </span>
                   )}
                 </td>
                 <td className="py-2 align-top">

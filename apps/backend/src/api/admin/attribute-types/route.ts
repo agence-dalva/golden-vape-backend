@@ -6,7 +6,35 @@ import ProductAttributeModuleService from "../../../modules/product-attribute/se
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const service: ProductAttributeModuleService = req.scope.resolve(PRODUCT_ATTRIBUTE_MODULE)
   const attributeTypes = await service.listAttributeTypes({}, { order: { name: "ASC" } })
-  res.json({ attribute_types: attributeTypes })
+  const typeIds = attributeTypes.map((t: any) => t.id)
+
+  // Attache les images de valeurs prédéfinies (value -> image_url) à chaque type,
+  // pour éviter le N+1 côté admin UI
+  const images = await service.listAttributeValueImages({ attribute_type_id: typeIds })
+  const imagesByType = new Map<string, Record<string, string>>()
+  for (const img of images as any[]) {
+    if (!imagesByType.has(img.attribute_type_id)) imagesByType.set(img.attribute_type_id, {})
+    imagesByType.get(img.attribute_type_id)![img.value] = img.image_url
+  }
+
+  // Attache le nombre de produits par valeur (value -> count), en une seule requête batchée
+  // plutôt qu'un round-trip par type — utilisé par la page admin "Marques" pour afficher
+  // combien de produits sont tagués sur chaque marque.
+  const assignments = await service.listProductAttributeValues({ attribute_type_id: typeIds })
+  const countsByType = new Map<string, Record<string, number>>()
+  for (const a of assignments as any[]) {
+    if (!countsByType.has(a.attribute_type_id)) countsByType.set(a.attribute_type_id, {})
+    const counts = countsByType.get(a.attribute_type_id)!
+    counts[a.value] = (counts[a.value] ?? 0) + 1
+  }
+
+  const enriched = attributeTypes.map((t: any) => ({
+    ...t,
+    preset_value_images: imagesByType.get(t.id) ?? {},
+    preset_value_counts: countsByType.get(t.id) ?? {},
+  }))
+
+  res.json({ attribute_types: enriched })
 }
 
 // POST /admin/attribute-types — crée un nouveau type d'attribut

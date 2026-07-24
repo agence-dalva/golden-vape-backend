@@ -17,6 +17,7 @@ src/scripts/ps_images.csv
 
 ./tsconfig.tsbuildinfo
 medusa-db.sql
+db-backups
 build
 .cache
 

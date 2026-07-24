@@ -5,8 +5,17 @@ import ProductAttributeModuleService from "../../../../modules/product-attribute
 // GET /admin/attribute-types/:id
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const service: ProductAttributeModuleService = req.scope.resolve(PRODUCT_ATTRIBUTE_MODULE)
-  const attributeType = await service.retrieveAttributeType(req.params.id)
-  res.json({ attribute_type: attributeType })
+  const attributeType: any = await service.retrieveAttributeType(req.params.id)
+
+  const images = await service.listAttributeValueImages({ attribute_type_id: req.params.id })
+  const preset_value_images: Record<string, string> = {}
+  for (const img of images as any[]) preset_value_images[img.value] = img.image_url
+
+  const assignments = await service.listProductAttributeValues({ attribute_type_id: req.params.id })
+  const preset_value_counts: Record<string, number> = {}
+  for (const a of assignments as any[]) preset_value_counts[a.value] = (preset_value_counts[a.value] ?? 0) + 1
+
+  res.json({ attribute_type: { ...attributeType, preset_value_images, preset_value_counts } })
 }
 
 // PUT /admin/attribute-types/:id — met à jour nom et/ou valeurs prédéfinies

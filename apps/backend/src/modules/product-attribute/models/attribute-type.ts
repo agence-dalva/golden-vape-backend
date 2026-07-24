@@ -1,5 +1,6 @@
 import { model } from "@medusajs/framework/utils"
 import ProductAttributeValue from "./product-attribute-value"
+import AttributeValueImage from "./attribute-value-image"
 
 // Définit un type de caractéristique (ex: "Taux de nicotine", "Contenance", "PG/VG")
 // preset_values est la liste des valeurs prédéfinies proposées en dropdown dans l'admin
@@ -11,6 +12,7 @@ const AttributeType = model.define("attribute_type", {
   preset_values: model.json().default([] as unknown as Record<string, unknown>),
   allow_multiple: model.boolean().default(false),
   values: model.hasMany(() => ProductAttributeValue, { mappedBy: "attribute_type" }),
+  value_images: model.hasMany(() => AttributeValueImage, { mappedBy: "attribute_type" }),
 })
 
 export default AttributeType
