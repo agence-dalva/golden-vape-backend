@@ -90,7 +90,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
     return
   }
 
-  const take = Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT)
+  // Borne basse autant que haute : une limite négative se serait retrouvée dans un `slice`,
+  // qui compte alors depuis la fin et retire des résultats au lieu d'en garder.
+  const take = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT))
   const normalized = normalize(term)
   const words = normalized.split(" ").filter(Boolean)
   const collapsed = normalized.replace(/ /g, "")
