@@ -23,9 +23,18 @@ function normalize(value: string): string {
     .trim()
 }
 
-function matchesAllWords(haystack: string, words: string[]): boolean {
+/**
+ * Les marques de vape s'écrivent indifféremment en un ou deux mots — « Geekvape » sur
+ * l'emballage, « Geek Vape » dans le catalogue. On compare donc aussi les formes sans
+ * espaces, sans quoi la graphie la plus courante ne trouverait rien.
+ */
+function matches(haystack: string, words: string[], collapsedTerm: string): boolean {
   const normalized = normalize(haystack)
-  return words.every((word) => normalized.includes(word))
+
+  if (words.every((word) => normalized.includes(word))) {
+    return true
+  }
+  return normalized.replace(/ /g, "").includes(collapsedTerm)
 }
 
 type SearchProduct = {
@@ -47,11 +56,13 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
   }
 
   const take = Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT)
-  const words = normalize(term).split(" ").filter(Boolean)
+  const normalized = normalize(term)
+  const words = normalized.split(" ").filter(Boolean)
+  const collapsed = normalized.replace(/ /g, "")
 
   const [products, brands] = await Promise.all([
-    searchProducts(req, term, words, take),
-    searchBrands(req, words, take),
+    searchProducts(req, term, words, collapsed, take),
+    searchBrands(req, words, collapsed, take),
   ])
 
   res.json({ products, brands, query: term })
@@ -61,6 +72,7 @@ async function searchProducts(
   req: MedusaRequest,
   term: string,
   words: string[],
+  collapsed: string,
   take: number
 ) {
   const productModule = req.scope.resolve(Modules.PRODUCT)
@@ -71,7 +83,7 @@ async function searchProducts(
   )
 
   return (products as unknown as SearchProduct[])
-    .filter((product) => product?.title && matchesAllWords(product.title, words))
+    .filter((product) => product?.title && matches(product.title, words, collapsed))
     .slice(0, take)
     .map((product) => ({
       id: product.id,
@@ -82,7 +94,12 @@ async function searchProducts(
     }))
 }
 
-async function searchBrands(req: MedusaRequest, words: string[], take: number) {
+async function searchBrands(
+  req: MedusaRequest,
+  words: string[],
+  collapsed: string,
+  take: number
+) {
   const service: ProductAttributeModuleService = req.scope.resolve(PRODUCT_ATTRIBUTE_MODULE)
 
   const [marqueType] = await service.listAttributeTypes({ name: "Marque" })
@@ -98,7 +115,7 @@ async function searchBrands(req: MedusaRequest, words: string[], take: number) {
   )
 
   return (images as { value: string; image_url: string }[])
-    .filter((image) => matchesAllWords(image.value, words))
+    .filter((image) => matches(image.value, words, collapsed))
     .slice(0, take)
     .map((image) => ({ value: image.value, image_url: image.image_url }))
 }
