@@ -1,4 +1,5 @@
 import { loadEnv, defineConfig } from '@medusajs/framework/utils'
+import { moneticoOptionsFromEnv } from './src/modules/monetico/lib/options'
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
 
@@ -17,6 +18,18 @@ module.exports = defineConfig({
   modules: [
     {
       resolve: "./src/modules/product-attribute",
+    },
+    {
+      resolve: "@medusajs/payment",
+      options: {
+        providers: [
+          {
+            resolve: "./src/modules/monetico",
+            id: "monetico",
+            options: moneticoOptionsFromEnv(),
+          },
+        ],
+      },
     },
     {
       resolve: "@medusajs/file",

@@ -10,5 +10,11 @@ export default defineMiddlewares({
       method: ["POST"],
       middlewares: [upload.single("file")],
     },
+    {
+      // Le sceau Monetico se calcule sur le corps brut de la notification.
+      matcher: "/hooks/payment/monetico_monetico",
+      method: ["POST"],
+      bodyParser: { preserveRawBody: true },
+    },
   ],
 })
