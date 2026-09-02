@@ -5,7 +5,6 @@ import {
   verifySeal,
 } from "../lib/seal"
 import {
-  SEALED_REQUEST_FIELDS,
   buildPaymentRequest,
   encodeOrderContext,
   formatAmount,
@@ -15,6 +14,19 @@ import type { MoneticoOptions } from "../types"
 
 // Clé d'exemple de la documentation technique v2.0, §1.3.
 const KEY = "0123456789ABCDEF0123456789ABCDEF01234567"
+
+/**
+ * Liste de champs de l'exemple §9.3.1.1 de la documentation. Elle ne sert qu'à reproduire
+ * cet exemple : le serveur de Monetico, lui, scelle les champs réellement postés — voir le
+ * commentaire en tête de `payment-request.ts`.
+ */
+const DOC_EXAMPLE_FIELDS = [
+  "TPE", "contexte_commande", "date",
+  "dateech1", "dateech2", "dateech3", "dateech4",
+  "lgue", "mail", "montant",
+  "montantech1", "montantech2", "montantech3", "montantech4",
+  "nbrech", "options", "reference", "societe", "texte-libre", "version",
+] as const
 
 const OPTIONS: MoneticoOptions = {
   tpe: "1234567",
@@ -41,7 +53,7 @@ describe("buildSealString", () => {
   // Chaîne « paiement comptant » reproduite de la documentation technique v2.0, §9.3.1.1.
   it("reproduit la chaîne à certifier de la documentation", () => {
     const fields: Record<string, string> = Object.fromEntries(
-      SEALED_REQUEST_FIELDS.map((field) => [field, ""])
+      DOC_EXAMPLE_FIELDS.map((field) => [field, ""])
     )
 
     Object.assign(fields, {
@@ -83,7 +95,7 @@ describe("buildSealString", () => {
 describe("computeSeal", () => {
   it("produit le HMAC-SHA1 de la chaîne à certifier", () => {
     const fields: Record<string, string> = Object.fromEntries(
-      SEALED_REQUEST_FIELDS.map((field) => [field, ""])
+      DOC_EXAMPLE_FIELDS.map((field) => [field, ""])
     )
 
     Object.assign(fields, {
@@ -214,17 +226,22 @@ describe("buildPaymentRequest", () => {
     expect(form.fields.MAC).toMatch(/^[0-9a-f]{40}$/)
   })
 
-  it("scelle exactement ce qui est posté, contexte de commande compris", () => {
-    const sealed: Record<string, string> = Object.fromEntries(
-      SEALED_REQUEST_FIELDS.map((field) => [field, ""])
-    )
+  it("scelle exactement les champs postés, URLs de retour comprises", () => {
+    // La règle vient du serveur de Monetico, qui affiche la chaîne qu'il reconstitue
+    // quand le sceau ne correspond pas : tout ce qui est posté sauf le MAC lui-même.
+    const { MAC, ...posted } = form.fields
 
-    for (const field of SEALED_REQUEST_FIELDS) {
-      if (form.fields[field] !== undefined) {
-        sealed[field] = form.fields[field]
-      }
+    expect(computeSeal(posted, KEY)).toBe(MAC)
+    expect(buildSealString(posted)).toContain("url_retour_ok=https://boutique.test/ok")
+    expect(buildSealString(posted)).toContain("url_retour_err=https://boutique.test/ko")
+  })
+
+  it("laisse hors du sceau les champs vides d'un paiement comptant", () => {
+    const { MAC, ...posted } = form.fields
+    const sealed = buildSealString(posted)
+
+    for (const absent of ["dateech1", "montantech1", "nbrech", "options"]) {
+      expect(sealed).not.toContain(`${absent}=`)
     }
-
-    expect(computeSeal(sealed, KEY)).toBe(form.fields.MAC)
   })
 })

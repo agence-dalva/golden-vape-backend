@@ -12,35 +12,17 @@ export const MONETICO_PAYMENT_URL_SANDBOX =
   "https://p.monetico-services.com/test/paiement.cgi"
 
 /**
- * Champs entrant dans le calcul du sceau de la phase « Aller ».
+ * Le serveur de Monetico scelle EXACTEMENT les champs postés, sans les champs vides et
+ * URLs de retour comprises. C'est ce que renvoie sa page d'erreur de sceau, qui affiche
+ * la chaîne qu'il a reconstituée :
  *
- * Ils sont figés : la documentation technique v2.0 (§9.3.1.1) montre une chaîne qui
- * contient toujours les champs de paiement fractionné et le champ `options`, même
- * vides, et qui n'inclut en revanche ni les URLs de retour ni `mode_affichage`. On
- * scelle donc exactement cet ensemble, et on poste en plus les champs non scellés.
+ *   TPE=…*contexte_commande=…*date=…*lgue=FR*montant=…*reference=…*societe=…
+ *   *texte-libre=…*url_retour_err=…*url_retour_ok=…*version=3.0
+ *
+ * L'exemple du §9.3.1.1 de la documentation v2.0 décrit autre chose — une liste figée
+ * de vingt champs, échéances vides comprises, sans les URLs de retour. Suivre la
+ * documentation à la lettre fait rejeter toutes les demandes : le serveur fait foi.
  */
-export const SEALED_REQUEST_FIELDS = [
-  "TPE",
-  "contexte_commande",
-  "date",
-  "dateech1",
-  "dateech2",
-  "dateech3",
-  "dateech4",
-  "lgue",
-  "mail",
-  "montant",
-  "montantech1",
-  "montantech2",
-  "montantech3",
-  "montantech4",
-  "nbrech",
-  "options",
-  "reference",
-  "societe",
-  "texte-libre",
-  "version",
-] as const
 
 /** `[0-9]+(\.[0-9]{1,2})?[A-Z]{3}` — par exemple `62.73EUR`. */
 export function formatAmount(amount: number, currencyCode: string): string {
@@ -121,42 +103,33 @@ export function buildPaymentRequest(
 ): MoneticoPaymentForm {
   const { options } = input
 
-  const sealed: Record<string, string> = Object.fromEntries(
-    SEALED_REQUEST_FIELDS.map((field) => [field, ""])
-  )
-
-  sealed.TPE = options.tpe
-  sealed.version = MONETICO_VERSION
-  sealed.societe = options.societe
-  sealed.lgue = (options.lgue ?? "FR").toUpperCase()
-  sealed.date = formatDate(input.date ?? new Date(), options.timezone)
-  sealed.montant = formatAmount(input.amount, input.currencyCode)
-  sealed.reference = input.reference
-  sealed["texte-libre"] = input.texteLibre
-  sealed.contexte_commande = encodeOrderContext(input.orderContext)
-  sealed.mail = input.email ?? ""
-
-  const mac = computeSeal(sealed, options.key)
-
-  // On ne poste que les champs scellés qui portent une valeur : `options` n'est pas un
-  // champ de formulaire reconnu, et poster les échéances vides d'un paiement comptant
-  // ferait passer la demande pour un paiement fractionné.
-  const fields: Record<string, string> = {}
-  for (const [name, value] of Object.entries(sealed)) {
-    if (value !== "" && name !== "options") {
-      fields[name] = value
-    }
+  // Un champ sans valeur n'est pas posté, donc pas scellé : poster les échéances vides
+  // d'un paiement comptant le ferait en outre passer pour un paiement fractionné.
+  const fields: Record<string, string> = {
+    TPE: options.tpe,
+    contexte_commande: encodeOrderContext(input.orderContext),
+    date: formatDate(input.date ?? new Date(), options.timezone),
+    lgue: (options.lgue ?? "FR").toUpperCase(),
+    montant: formatAmount(input.amount, input.currencyCode),
+    reference: input.reference,
+    societe: options.societe,
+    "texte-libre": input.texteLibre,
+    url_retour_err: options.urlRetourErr,
+    url_retour_ok: options.urlRetourOk,
+    version: MONETICO_VERSION,
   }
 
-  fields.url_retour_ok = options.urlRetourOk
-  fields.url_retour_err = options.urlRetourErr
+  if (input.email) {
+    fields.mail = input.email
+  }
+
   if (options.iframe) {
     fields.mode_affichage = "iframe"
   }
-  fields.MAC = mac
 
   return {
     actionUrl: options.sandbox ? MONETICO_PAYMENT_URL_SANDBOX : MONETICO_PAYMENT_URL,
-    fields,
+    // Le sceau porte sur tout ce qui part, lui excepté.
+    fields: { ...fields, MAC: computeSeal(fields, options.key) },
   }
 }
