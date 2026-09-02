@@ -127,6 +127,12 @@ function toMoneticoAddress(address?: CartAddress | null): MoneticoAddress | null
     postalCode: address.postal_code,
     country: address.country_code.toUpperCase(),
     stateOrProvince: address.province ?? undefined,
-    phone: address.phone ?? undefined,
+    // Pas de téléphone : quel que soit le format, Monetico répond « Format invalide pour
+    // le(s) champ(s) : /contexte_commande/billing/phone » et refuse tout le paiement.
+    // Douze variantes ont été essayées contre le serveur de validation — 0612345678,
+    // +33612345678, 0033612345678, +33.612345678, 33612345678, l'objet EMV 3-D Secure
+    // { cc, subscriber } —, sous `billing`, `shipping`, `client`, et sur `mobilePhone`.
+    // Toutes refusées ; sans le champ, la demande passe. Il est facultatif : on l'omet
+    // jusqu'à obtenir le schéma exact auprès de Monetico.
   }
 }

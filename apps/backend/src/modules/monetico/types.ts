@@ -44,6 +44,7 @@ export type MoneticoAddress = {
   country: string
   stateOrProvince?: string
   email?: string
+  /** Refusé par le serveur de Monetico dans tous les formats essayés — non alimenté. */
   phone?: string
 }
 

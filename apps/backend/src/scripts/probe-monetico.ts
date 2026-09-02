@@ -34,6 +34,9 @@ export default async function probeMonetico() {
 
   console.info(`TPE=${options.tpe}  societe=${options.societe}  ${form.actionUrl}`)
   console.info(`champs postés : ${Object.keys(form.fields).sort().join(", ")}`)
+  console.info(
+    `contexte_commande : ${Buffer.from(form.fields.contexte_commande, "base64").toString("utf8")}`
+  )
 
   const res = await fetch(form.actionUrl, {
     method: "POST",
@@ -59,6 +62,12 @@ export default async function probeMonetico() {
   } else if (/valeur du MAC est erronée|signature des informations/i.test(html)) {
     console.error("❌ sceau refusé — vérifier MONETICO_KEY et la composition de la chaîne")
     console.error(`   chaîne attendue par Monetico : ${texte.slice(texte.indexOf("TPE="), 600)}`)
+  } else if (/erronées ou incompl|Format invalide pour/i.test(html)) {
+    console.error("❌ contexte_commande refusé — un champ du document JSON est mal formé")
+    const champ = texte.match(/Format invalide pour le\(s\) champ\(s\)\s*:\s*(\S+)/i)?.[1]
+    if (champ) console.error(`   champ en cause : ${champ}`)
+  } else if (!/Numéro de carte|Payer par carte/i.test(html)) {
+    console.error("❌ refus non reconnu")
   } else {
     console.info("✅ page de paiement obtenue")
   }
