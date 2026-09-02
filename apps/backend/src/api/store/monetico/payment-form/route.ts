@@ -48,6 +48,9 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
       "items.quantity",
       "items.unit_price",
       "items.variant_sku",
+      "items.requires_shipping",
+      "items.product.shipping_profile.id",
+      "shipping_methods.shipping_option.shipping_profile_id",
       "payment_collection.payment_sessions.*",
     ],
     filters: { id: cartId },
@@ -69,6 +72,13 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
       "Aucune session de paiement Monetico n'est ouverte sur ce panier."
     )
   }
+
+  // Medusa refait ces contrôles à la finalisation du panier, mais bien après le débit :
+  // le client se retrouverait alors payé sans commande. On les rejoue donc AVANT d'ouvrir
+  // la page de paiement, où un refus ne coûte rien.
+  // query.graph rend un type générique qui ne reflète pas les champs demandés : la forme
+  // réelle est celle décrite par ShippableCart.
+  assertCartCanBeCompleted(cart as unknown as ShippableCart)
 
   const billing = toMoneticoAddress(cart.billing_address ?? cart.shipping_address)
 
@@ -111,6 +121,47 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
   })
 
   res.json(form)
+}
+
+type ShippableCart = {
+  items?: ({ requires_shipping?: boolean; title?: string | null; product?: { shipping_profile?: { id?: string } | null } | null } | null)[]
+  shipping_methods?: ({ shipping_option?: { shipping_profile_id?: string } | null } | null)[]
+}
+
+/**
+ * Reproduit `validateShippingStep` de Medusa, que la finalisation du panier applique une
+ * fois le paiement encaissé. Un article dont le profil d'expédition n'est couvert par aucun
+ * mode de livraison choisi fait alors échouer la commande — argent débité, rien à livrer.
+ */
+function assertCartCanBeCompleted(cart: ShippableCart): void {
+  const shippable = (cart.items ?? []).filter((item) => item?.requires_shipping)
+
+  if (shippable.length === 0) {
+    return
+  }
+
+  const methods = cart.shipping_methods ?? []
+
+  if (methods.length === 0) {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Aucun mode de livraison n'est sélectionné sur ce panier."
+    )
+  }
+
+  const covered = new Set(
+    methods.map((method) => method?.shipping_option?.shipping_profile_id).filter(Boolean)
+  )
+  const orphans = shippable.filter((item) => !covered.has(item?.product?.shipping_profile?.id))
+
+  if (orphans.length > 0) {
+    // Le titre des articles fautifs désigne les produits à rattacher à un profil.
+    const titles = [...new Set(orphans.map((item) => item?.title ?? "?"))].slice(0, 5)
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Le mode de livraison choisi ne couvre pas le profil d'expédition de : ${titles.join(", ")}.`
+    )
+  }
 }
 
 function toMoneticoAddress(address?: CartAddress | null): MoneticoAddress | null {
