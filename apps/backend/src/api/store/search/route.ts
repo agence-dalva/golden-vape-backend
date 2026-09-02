@@ -1,5 +1,10 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { Modules, ProductStatus } from "@medusajs/framework/utils"
+import {
+  ContainerRegistrationKeys,
+  Modules,
+  ProductStatus,
+  QueryContext,
+} from "@medusajs/framework/utils"
 import { PRODUCT_ATTRIBUTE_MODULE } from "../../../modules/product-attribute"
 import type ProductAttributeModuleService from "../../../modules/product-attribute/service"
 
@@ -45,6 +50,36 @@ type SearchProduct = {
   images?: { url: string }[]
 }
 
+type QueriedVariant = {
+  id: string
+  title: string | null
+  manage_inventory: boolean
+  allow_backorder: boolean
+  calculated_price?: { calculated_amount: number; currency_code: string } | null
+  inventory_items?: {
+    inventory?: { location_levels?: { stocked_quantity: number; reserved_quantity: number }[] }
+  }[]
+}
+
+/**
+ * Stock réellement disponible : ce qui est en rayon moins ce que des commandes en cours ont
+ * déjà réservé, tous emplacements confondus. `null` quand aucun niveau n'est rattaché à la
+ * variante — c'est une absence d'information, à ne pas confondre avec une rupture.
+ */
+function availableStock(variant: QueriedVariant): number | null {
+  const levels = (variant.inventory_items ?? []).flatMap(
+    (item) => item?.inventory?.location_levels ?? []
+  )
+
+  if (!variant.manage_inventory || levels.length === 0) {
+    return null
+  }
+  return levels.reduce(
+    (total, level) => total + (level.stocked_quantity ?? 0) - (level.reserved_quantity ?? 0),
+    0
+  )
+}
+
 // GET /store/search?q=menthe&limit=6 — produits et marques en un seul appel.
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const { q, limit } = req.query as { q?: string; limit?: string }
@@ -77,21 +112,98 @@ async function searchProducts(
 ) {
   const productModule = req.scope.resolve(Modules.PRODUCT)
 
-  const products = await productModule.listProducts(
+  const found = await productModule.listProducts(
     { q: term, status: ProductStatus.PUBLISHED },
     { select: ["id", "title", "handle", "thumbnail"], relations: ["images"], take: OVER_FETCH }
   )
 
-  return (products as unknown as SearchProduct[])
+  const shortlist = (found as unknown as SearchProduct[])
     .filter((product) => product?.title && matches(product.title, words, collapsed))
     .slice(0, take)
-    .map((product) => ({
+
+  if (shortlist.length === 0) {
+    return []
+  }
+
+  // Prix et stock demandent un contexte de tarification et les niveaux d'inventaire, que la
+  // recherche libre ne renvoie pas. On les récupère en une passe, sur la poignée de produits
+  // retenus seulement.
+  const detailed = await withPricingAndStock(req, shortlist.map((product) => product.id))
+
+  return shortlist.map((product) => {
+    const variants = detailed.get(product.id) ?? []
+
+    return {
       id: product.id,
       title: product.title,
       handle: product.handle,
       // Le catalogue migré ne renseigne pas thumbnail : la première image fait foi.
       image_url: product.thumbnail ?? product.images?.[0]?.url ?? null,
-    }))
+      variants,
+    }
+  })
+}
+
+async function withPricingAndStock(req: MedusaRequest, productIds: string[]) {
+  const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+
+  const { data: regions } = await query.graph({
+    entity: "region",
+    fields: ["id", "currency_code"],
+    pagination: { take: 1, skip: 0 },
+  })
+  const region = regions[0]
+
+  const { data: products } = await query.graph({
+    entity: "product",
+    fields: [
+      "id",
+      "variants.id",
+      "variants.title",
+      "variants.manage_inventory",
+      "variants.allow_backorder",
+      "variants.calculated_price.*",
+      "variants.inventory_items.inventory.location_levels.stocked_quantity",
+      "variants.inventory_items.inventory.location_levels.reserved_quantity",
+    ],
+    filters: { id: productIds },
+    ...(region
+      ? {
+          context: {
+            variants: {
+              calculated_price: QueryContext({
+                region_id: region.id,
+                currency_code: region.currency_code,
+              }),
+            },
+          },
+        }
+      : {}),
+  })
+
+  const byProduct = new Map<string, ReturnType<typeof toVariant>[]>()
+  for (const product of products) {
+    byProduct.set(
+      product.id,
+      ((product.variants ?? []) as QueriedVariant[]).map(toVariant)
+    )
+  }
+  return byProduct
+}
+
+function toVariant(variant: QueriedVariant) {
+  return {
+    id: variant.id,
+    title: variant.title,
+    price: variant.calculated_price
+      ? {
+          amount: variant.calculated_price.calculated_amount,
+          currency_code: variant.calculated_price.currency_code,
+        }
+      : null,
+    stock: availableStock(variant),
+    allow_backorder: variant.allow_backorder,
+  }
 }
 
 async function searchBrands(
