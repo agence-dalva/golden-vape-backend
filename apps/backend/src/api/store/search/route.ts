@@ -1,10 +1,5 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import {
-  ContainerRegistrationKeys,
-  Modules,
-  ProductStatus,
-  QueryContext,
-} from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, QueryContext } from "@medusajs/framework/utils"
 import { PRODUCT_ATTRIBUTE_MODULE } from "../../../modules/product-attribute"
 import type ProductAttributeModuleService from "../../../modules/product-attribute/service"
 
@@ -12,14 +7,47 @@ const MIN_TERM_LENGTH = 2
 const DEFAULT_LIMIT = 6
 const MAX_LIMIT = 10
 
-// La recherche libre de Medusa porte aussi sur la description : « mente » remonte ainsi des
-// produits sans rapport. Pour une autocomplétion, mieux vaut ne rien afficher qu'afficher du
-// bruit — on ne garde donc que les produits dont le titre ou le sous-titre contient réellement
-// chaque mot cherché, et on interroge large pour compenser ce filtrage.
-//
-// Le sous-titre est justement là pour ça : l'équipe y saisit les mots-clés sous lesquels les
-// clients cherchent le produit, que son titre commercial ne contient pas.
-const OVER_FETCH = 60
+/*
+  Les produits sont cherchés en SQL plutôt que par la recherche libre de Medusa, pour deux
+  raisons.
+
+  La première : `q` porte aussi sur la description, si bien que « mente » remontait des
+  produits sans rapport. Pour une autocomplétion, mieux vaut ne rien afficher qu'afficher du
+  bruit — on s'en tient donc au titre et au sous-titre, ce dernier étant précisément le champ
+  où l'équipe saisit les mots-clés sous lesquels les clients cherchent le produit.
+
+  La seconde : `ILIKE` ne retire jamais les accents, et selon la collation de la base `lower()`
+  ne descend même pas les majuscules accentuées. « debutant » ne trouvait donc pas
+  « débutant », ni « étanche » « Étanche » — alors que personne ne saisit les accents dans une
+  barre de recherche. Replier les accents en JS ne servait à rien : le SQL avait déjà écarté
+  le produit.
+
+  `translate` plutôt que l'extension `unaccent` : rien à installer, donc le même comportement
+  en local, en préproduction et en production, sans migration.
+*/
+const ACCENT_FOLDING: [string, string][] = [
+  ["àáâãäåÀÁÂÃÄÅ", "a"],
+  ["çÇ", "c"],
+  ["èéêëÈÉÊË", "e"],
+  ["ìíîïÌÍÎÏ", "i"],
+  ["ñÑ", "n"],
+  ["òóôõöÒÓÔÕÖ", "o"],
+  ["ùúûüÙÚÛÜ", "u"],
+  ["ýÿÝ", "y"],
+]
+// Les deux chaînes de `translate` doivent avoir la même longueur : les dériver du même
+// tableau évite de désaligner un caractère à la main.
+const ACCENTED = ACCENT_FOLDING.map(([accented]) => accented).join("")
+const PLAIN = ACCENT_FOLDING.map(([accented, plain]) => plain.repeat(accented.length)).join("")
+
+/**
+ * Transposition SQL de `normalize` : minuscules, sans accents, ponctuation réduite à une
+ * espace. Les deux doivent rester alignées — le SQL sélectionne les produits, le JS filtre
+ * les marques. Les chaînes interpolées sont des constantes du module, pas une saisie.
+ */
+function fold(column: string): string {
+  return `regexp_replace(translate(lower(${column}), '${ACCENTED}', '${PLAIN}'), '[^a-z0-9]+', ' ', 'g')`
+}
 
 /** Minuscule sans accents ni ponctuation, pour comparer « Crème » et « creme ». */
 function normalize(value: string): string {
@@ -59,8 +87,7 @@ type SearchProduct = {
   title: string
   subtitle: string | null
   handle: string
-  thumbnail: string | null
-  images?: { url: string }[]
+  image_url: string | null
 }
 
 type QueriedVariant = {
@@ -111,7 +138,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
   const collapsed = normalized.replace(/ /g, "")
 
   const [products, brands] = await Promise.all([
-    searchProducts(req, term, words, collapsed, take),
+    searchProducts(req, words, collapsed, take),
     searchBrands(req, words, collapsed, take),
   ])
 
@@ -120,48 +147,83 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
 
 async function searchProducts(
   req: MedusaRequest,
-  term: string,
   words: string[],
   collapsed: string,
   take: number
 ) {
-  const productModule = req.scope.resolve(Modules.PRODUCT)
+  const knex = req.scope.resolve(ContainerRegistrationKeys.PG_CONNECTION)
 
-  const found = await productModule.listProducts(
-    { q: term, status: ProductStatus.PUBLISHED },
-    {
-      select: ["id", "title", "subtitle", "handle", "thumbnail"],
-      relations: ["images"],
-      take: OVER_FETCH,
-    }
+  const patterns = words.map((word) => `%${word}%`)
+  const collapsedPattern = `%${collapsed}%`
+
+  // Tous les mots dans le même champ. Répartis sur deux champs — « menthe » dans le titre,
+  // « glaciale » dans le sous-titre — la correspondance ne désignerait plus rien de précis.
+  const allInTitle = words.map(() => "titre LIKE ?").join(" AND ")
+  const allInSubtitle = words.map(() => "sous_titre LIKE ?").join(" AND ")
+
+  // Les marques de vape s'écrivent indifféremment en un ou deux mots — « Geekvape » sur
+  // l'emballage, « Geek Vape » dans le catalogue : d'où la comparaison sans espaces.
+  const { rows } = await knex.raw(
+    `
+    WITH catalogue AS (
+      SELECT
+        p.id,
+        p.title,
+        p.subtitle,
+        p.handle,
+        p.thumbnail,
+        ${fold("p.title")} AS titre,
+        ${fold("coalesce(p.subtitle, '')")} AS sous_titre
+      FROM product p
+      WHERE p.deleted_at IS NULL AND p.status = 'published'
+    )
+    SELECT
+      id,
+      title,
+      subtitle,
+      handle,
+      -- Le catalogue migré ne renseigne pas thumbnail : la première image fait foi.
+      coalesce(
+        thumbnail,
+        (
+          SELECT i.url
+          FROM image i
+          WHERE i.product_id = catalogue.id AND i.deleted_at IS NULL
+          ORDER BY i.rank
+          LIMIT 1
+        )
+      ) AS image_url
+    FROM catalogue
+    WHERE (${allInTitle})
+       OR (${allInSubtitle})
+       OR replace(titre, ' ', '') LIKE ?
+       OR replace(sous_titre, ' ', '') LIKE ?
+    -- Un mot trouvé dans le titre désigne le produit plus sûrement que le même mot noyé dans
+    -- une liste de mots-clés : ces produits passent devant.
+    ORDER BY CASE WHEN (${allInTitle}) THEN 0 ELSE 1 END, title
+    LIMIT ?
+    `,
+    [...patterns, ...patterns, collapsedPattern, collapsedPattern, ...patterns, take]
   )
 
-  const shortlist = (found as unknown as SearchProduct[])
-    .filter((product) => matchesAny([product?.title, product?.subtitle], words, collapsed))
-    .slice(0, take)
+  const shortlist = rows as SearchProduct[]
 
   if (shortlist.length === 0) {
     return []
   }
 
-  // Prix et stock demandent un contexte de tarification et les niveaux d'inventaire, que la
-  // recherche libre ne renvoie pas. On les récupère en une passe, sur la poignée de produits
-  // retenus seulement.
+  // Prix et stock demandent un contexte de tarification et les niveaux d'inventaire, hors de
+  // portée de cette requête. On les récupère en une passe, sur la poignée de produits retenus.
   const detailed = await withPricingAndStock(req, shortlist.map((product) => product.id))
 
-  return shortlist.map((product) => {
-    const variants = detailed.get(product.id) ?? []
-
-    return {
-      id: product.id,
-      title: product.title,
-      subtitle: product.subtitle ?? null,
-      handle: product.handle,
-      // Le catalogue migré ne renseigne pas thumbnail : la première image fait foi.
-      image_url: product.thumbnail ?? product.images?.[0]?.url ?? null,
-      variants,
-    }
-  })
+  return shortlist.map((product) => ({
+    id: product.id,
+    title: product.title,
+    subtitle: product.subtitle ?? null,
+    handle: product.handle,
+    image_url: product.image_url ?? null,
+    variants: detailed.get(product.id) ?? [],
+  }))
 }
 
 async function withPricingAndStock(req: MedusaRequest, productIds: string[]) {
