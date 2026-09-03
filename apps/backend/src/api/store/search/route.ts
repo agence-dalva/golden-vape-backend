@@ -14,8 +14,11 @@ const MAX_LIMIT = 10
 
 // La recherche libre de Medusa porte aussi sur la description : « mente » remonte ainsi des
 // produits sans rapport. Pour une autocomplétion, mieux vaut ne rien afficher qu'afficher du
-// bruit — on ne garde donc que les titres contenant réellement chaque mot cherché, et on
-// interroge large pour compenser ce filtrage.
+// bruit — on ne garde donc que les produits dont le titre ou le sous-titre contient réellement
+// chaque mot cherché, et on interroge large pour compenser ce filtrage.
+//
+// Le sous-titre est justement là pour ça : l'équipe y saisit les mots-clés sous lesquels les
+// clients cherchent le produit, que son titre commercial ne contient pas.
 const OVER_FETCH = 60
 
 /** Minuscule sans accents ni ponctuation, pour comparer « Crème » et « creme ». */
@@ -42,9 +45,19 @@ function matches(haystack: string, words: string[], collapsedTerm: string): bool
   return normalized.replace(/ /g, "").includes(collapsedTerm)
 }
 
+/**
+ * Titre et sous-titre sont comparés séparément et non concaténés : « menthe » dans le titre
+ * et « glaciale » dans le sous-titre ne font pas du produit un résultat pour « menthe
+ * glaciale », qui désignerait alors n'importe quel produit mentholé.
+ */
+function matchesAny(haystacks: (string | null | undefined)[], words: string[], collapsedTerm: string) {
+  return haystacks.some((haystack) => haystack && matches(haystack, words, collapsedTerm))
+}
+
 type SearchProduct = {
   id: string
   title: string
+  subtitle: string | null
   handle: string
   thumbnail: string | null
   images?: { url: string }[]
@@ -116,11 +129,15 @@ async function searchProducts(
 
   const found = await productModule.listProducts(
     { q: term, status: ProductStatus.PUBLISHED },
-    { select: ["id", "title", "handle", "thumbnail"], relations: ["images"], take: OVER_FETCH }
+    {
+      select: ["id", "title", "subtitle", "handle", "thumbnail"],
+      relations: ["images"],
+      take: OVER_FETCH,
+    }
   )
 
   const shortlist = (found as unknown as SearchProduct[])
-    .filter((product) => product?.title && matches(product.title, words, collapsed))
+    .filter((product) => matchesAny([product?.title, product?.subtitle], words, collapsed))
     .slice(0, take)
 
   if (shortlist.length === 0) {
@@ -138,6 +155,7 @@ async function searchProducts(
     return {
       id: product.id,
       title: product.title,
+      subtitle: product.subtitle ?? null,
       handle: product.handle,
       // Le catalogue migré ne renseigne pas thumbnail : la première image fait foi.
       image_url: product.thumbnail ?? product.images?.[0]?.url ?? null,
