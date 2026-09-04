@@ -22,7 +22,31 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 */
 
 const DEFAULT_LIMIT = 24
-const MAX_LIMIT = 100
+// Le tri par prix a besoin de tous les identifiants retenus d'un coup : le prix est calculé
+// après la requête et ne se trie pas en base. La plus grosse catégorie du catalogue en compte
+// moins de mille.
+const MAX_LIMIT = 1000
+
+// Liste blanche : ces expressions sont interpolées dans le SQL, pas passées en paramètre.
+const ORDERS: Record<string, string> = {
+  title: "c.title ASC",
+  "-created_at": "c.created_at DESC, c.title ASC",
+}
+const DEFAULT_ORDER = "title"
+
+/**
+ * Repère d'URL d'un type d'attribut : « Dosage PG/VG » → « dosage-pg-vg ». Les noms de types
+ * sont saisis à l'administration, avec accents, espaces et barres obliques : les employer tels
+ * quels dans une adresse la rendrait illisible une fois encodée.
+ */
+export function slugifyType(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+}
 
 /** Filtres actifs, par type d'attribut : { Marque: ["Pulp"], Contenance: ["10ml", "50ml"] }. */
 function parseFilters(raw: unknown): [string, string[]][] {
@@ -49,7 +73,7 @@ function parseFilters(raw: unknown): [string, string[]][] {
 // et le filtrer rendrait les facettes plus strictes que la grille.
 const CIBLE = `
   cible AS (
-    SELECT DISTINCT p.id, p.title
+    SELECT DISTINCT p.id, p.title, p.created_at
     FROM product_category racine
     JOIN product_category descendance
       ON descendance.mpath LIKE racine.id || '%'
@@ -102,13 +126,30 @@ function clauseFiltres(filters: [string, string[]][], sauf?: string) {
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const knex = req.scope.resolve(ContainerRegistrationKeys.PG_CONNECTION)
   const { handle } = req.params
-  const { filters: rawFilters, limit, offset } = req.query as {
+  const { filters: rawFilters, limit, offset, order } = req.query as {
     filters?: unknown
     limit?: string
     offset?: string
+    order?: string
   }
 
-  const filters = parseFilters(rawFilters)
+  const demandes = parseFilters(rawFilters)
+
+  /*
+    Les filtres arrivent désignés par leur repère d'URL. Cette lecture des types — une douzaine
+    de lignes — les rétablit en noms réels, seuls comparables aux valeurs enregistrées. Un
+    repère inconnu est ignoré plutôt que de vider la page.
+  */
+  const { rows: types } = await knex.raw(`SELECT name FROM attribute_type`)
+  const parSlug = new Map(
+    (types as { name: string }[]).map((type) => [slugifyType(type.name), type.name])
+  )
+
+  const filters = demandes
+    .map(([slug, values]) => [parSlug.get(slug) ?? slug, values] as [string, string[]])
+    .filter(([type]) => parSlug.has(slugifyType(type)))
+
+  const orderBy = ORDERS[order ?? DEFAULT_ORDER] ?? ORDERS[DEFAULT_ORDER]
   const take = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT))
   const skip = Math.max(0, Number(offset) || 0)
 
@@ -121,7 +162,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
      SELECT c.id, count(*) OVER () AS total
      FROM cible c
      WHERE ${retenus.sql}
-     ORDER BY c.title
+     ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
     [handle, ...retenus.bindings, take, skip]
   )
@@ -155,13 +196,28 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
     facets.set(ligne.type, facette)
   }
 
+  /*
+    Une valeur cochée est toujours renvoyée, fût-ce à zéro. Sans cela une sélection sans
+    résultat fait disparaître la facette qui la porte, et le client n'a plus aucun moyen de
+    décocher ce qu'il vient de cocher — il ne lui reste qu'à tout effacer.
+  */
+  for (const [type, values] of filters) {
+    const facette = facets.get(type) ?? { type, allow_multiple: false, values: [] }
+    for (const value of values) {
+      if (!facette.values.some((connue) => connue.value === value)) {
+        facette.values.push({ value, count: 0 })
+      }
+    }
+    facets.set(type, facette)
+  }
+
   res.json({
     handle,
     // Sans ligne renvoyée, la fenêtre `count(*) OVER ()` n'a rien à porter : le total est nul,
     // ou la page demandée dépasse la liste — le storefront distingue les deux par l'offset.
     total: Number(lignes[0]?.total ?? 0),
-    // Classés par titre : la page suivante reprend où s'arrête la précédente. Le storefront
-    // hydrate ces identifiants via /store/products?id[]=… pour obtenir prix et stock.
+    // Classés comme demandé, la page suivante reprenant où s'arrête la précédente. Le
+    // storefront hydrate ces identifiants via /store/products?id[]=… pour prix et stock.
     product_ids: lignes.map((ligne) => ligne.id),
     facets: [...facets.values()]
       .map((facette) => ({
