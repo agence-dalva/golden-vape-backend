@@ -65,8 +65,13 @@ function parseFilters(raw: unknown): [string, string[]][] {
     .filter(([, values]) => values.length > 0)
 }
 
-// Les produits de la catégorie et de toute sa descendance. `mpath` porte le chemin des
-// ancêtres : descendre l'arbre tient dans un `LIKE`, sans récursion ni requête par niveau.
+// Les produits de la catégorie et de toute sa descendance. `mpath` porte le chemin complet du
+// nœud, ancêtres compris et terminé par lui-même : descendre l'arbre tient dans un `LIKE`,
+// sans récursion ni requête par niveau.
+//
+// La comparaison porte sur les chemins et non sur l'identifiant : le chemin d'une catégorie
+// commence par celui de son parent, si bien que `mpath LIKE racine.id || '%'` ne trouvait rien
+// dès que la racine demandée était elle-même une sous-catégorie.
 //
 // Les catégories inactives ou internes sont écartées, comme la boutique le fait. Le canal de
 // vente, lui, n'est pas exigé : cette boutique sert des produits publiés sans lien de canal,
@@ -76,7 +81,7 @@ const CIBLE = `
     SELECT DISTINCT p.id, p.title, p.created_at
     FROM product_category racine
     JOIN product_category descendance
-      ON descendance.mpath LIKE racine.id || '%'
+      ON (descendance.mpath = racine.mpath OR descendance.mpath LIKE racine.mpath || '.%')
      AND descendance.deleted_at IS NULL
      AND descendance.is_active = true
      AND descendance.is_internal = false
