@@ -7,7 +7,20 @@ module.exports = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL,
+    /*
+      Compression des réponses HTTP, désactivée par défaut chez Medusa.
+
+      Mesuré sur la recherche : 27 747 octets bruts contre 6 447 une fois gzippés, soit 4,3×.
+      Le catalogue et la navigation sont du JSON tout aussi répétitif. Le gain porte sur
+      l'égress de Railway autant que sur le temps de transfert.
+
+      Seuil laissé à sa valeur par défaut, 1 024 octets : en deçà, l'en-tête gzip coûte plus
+      que ce qu'il économise — la réponse d'une recherche sans résultat fait quarante octets.
+    */
     http: {
+      compression: {
+        enabled: true,
+      },
       storeCors: process.env.STORE_CORS!,
       adminCors: process.env.ADMIN_CORS!,
       authCors: process.env.AUTH_CORS!,
