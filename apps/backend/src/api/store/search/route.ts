@@ -224,6 +224,14 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
 
   const payload: SearchPayload = { products, brands }
   const vide = products.length === 0 && brands.length === 0
+  /*
+    La règle vise les mutations du domaine — créer une commande, modifier un produit — qui
+    doivent passer par un workflow pour être rejouables et traçables. Écrire dans un cache
+    n'en est pas une : rien n'est modifié dans la boutique, et l'entrée s'efface d'elle-même
+    au bout d'une minute. L'envelopper dans un workflow ajouterait son coût à chaque
+    recherche, précisément ce que ce cache existe pour éviter.
+  */
+  // eslint-disable-next-line @medusajs/no-service-mutations-in-api-route
   await cache
     .set(cacheKey, { ...payload, at: Date.now() }, vide ? SEARCH_TTL_EMPTY : SEARCH_TTL)
     .catch(() => {})
