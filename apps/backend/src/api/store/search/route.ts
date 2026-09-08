@@ -3,7 +3,17 @@ import { ContainerRegistrationKeys, QueryContext } from "@medusajs/framework/uti
 import { PRODUCT_ATTRIBUTE_MODULE } from "../../../modules/product-attribute"
 import type ProductAttributeModuleService from "../../../modules/product-attribute/service"
 
-const MIN_TERM_LENGTH = 2
+/*
+  Trois caractères, et non deux.
+
+  Mesuré sur ce catalogue : « te » ramenait cent produits et 27,7 Ko pour deux lettres qui
+  n'expriment aucune intention, au prix d'un parcours complet de la table — le même que pour
+  un terme précis. « ten » ramène huit produits et 2,0 Ko, treize fois moins.
+
+  La borne est répétée dans le composant de recherche, mais elle doit exister ici : un script
+  qui appelle la route directement contourne le frontend.
+*/
+const MIN_TERM_LENGTH = 3
 /*
   L'autocomplétion défile : mieux vaut une liste longue qu'un client convaincu que son produit
   n'existe pas parce qu'il n'entrait pas dans six lignes.
