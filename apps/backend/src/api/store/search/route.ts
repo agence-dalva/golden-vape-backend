@@ -1,6 +1,12 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import type { ICacheService } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, Modules, QueryContext } from "@medusajs/framework/utils"
+import {
+  INVALIDATED_AT_KEY,
+  SEARCH_TTL,
+  SEARCH_TTL_EMPTY,
+  searchCacheKey,
+} from "../../../lib/search-cache"
 import { PRODUCT_ATTRIBUTE_MODULE } from "../../../modules/product-attribute"
 import type ProductAttributeModuleService from "../../../modules/product-attribute/service"
 
@@ -33,30 +39,23 @@ const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 300
 
 /*
-  Cache de la recherche.
+  Cache de la recherche. Clés et durées vivent dans `lib/search-cache`, partagées avec le
+  souscripteur qui les périme.
 
   Une barre de recherche est le point le plus répétitif d'une boutique : les clients tapent
   les mêmes marques et les mêmes arômes, et chaque frappe retenue rejoue le même parcours
   complet de la table produit puis la lecture des prix et du stock. Mesuré sans cache, le
   endpoint plafonne à environ 185 requêtes par seconde et la latence double à chaque
   doublement de la charge : la signature d'une file d'attente, que le cache supprime.
-
-  Soixante secondes : assez pour absorber une rafale de frappes et les recherches identiques
-  de visiteurs différents, assez peu pour qu'un produit publié soit trouvable dans la minute.
-  Une recherche sans résultat est gardée deux fois moins longtemps — c'est souvent une faute
-  de frappe, inutile de la retenir, mais assez pour qu'un script qui la répète ne réveille
-  pas la base à chaque fois.
 */
-const CACHE_TTL = 60
-const CACHE_TTL_EMPTY = 30
-/* Version de la clé : à incrémenter dès que la forme de la réponse change, sinon un
-   déploiement servirait pendant une minute des réponses à l'ancien format. */
-const CACHE_VERSION = "v1"
-
 type SearchPayload = {
   products: Awaited<ReturnType<typeof searchProducts>>
   brands: Awaited<ReturnType<typeof searchBrands>>
 }
+
+/** L'horodatage n'est pas renvoyé au client : il ne sert qu'à comparer l'entrée à la date du
+    dernier changement au catalogue. */
+type CachedSearch = SearchPayload & { at: number }
 
 /*
   Les produits sont cherchés en SQL plutôt que par la recherche libre de Medusa, pour deux
@@ -194,33 +193,27 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
 
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
   const cache = req.scope.resolve<ICacheService>(Modules.CACHE)
+  const cacheKey = searchCacheKey(take, normalized)
 
   /*
-    La clé est bâtie sur le terme replié, pas sur la saisie : « Fraise », « fraise » et
-    « FRAÎSE » donnent les mêmes résultats, autant qu'ils partagent la même entrée. Le
-    repliage ne laisse que des minuscules, des chiffres et des espaces, rien qui puisse
-    casser une clé Redis.
+    L'entrée et la date du dernier changement au catalogue sont lues de front : la seconde ne
+    dépend pas de la première, les enchaîner ajouterait un aller-retour à chaque recherche.
 
-    La limite en fait partie, elle change la réponse. La région n'y est pas : la route ne sait
-    lire que la première, la réponse ne peut donc pas varier de ce côté — l'y mettre coûterait
-    une requête pour une clé qui ne prendrait jamais deux valeurs.
-
-    Rien ici ne dépend du client : ni panier, ni compte, ni prix négocié. La clé est donc
-    partageable entre tous les visiteurs, ce qui est la condition pour qu'un cache serve.
+    Une panne de Redis ne doit pas emporter la recherche : lectures et écriture sont tolérées
+    en échec, la requête retombe alors sur PostgreSQL comme avant le cache.
   */
-  const cacheKey = `search:${CACHE_VERSION}:${take}:${normalized}`
+  const [cached, invalidatedAt] = await Promise.all([
+    cache.get<CachedSearch>(cacheKey).catch(() => null),
+    cache.get<number>(INVALIDATED_AT_KEY).catch(() => null),
+  ])
 
-  /*
-    Une panne de Redis ne doit pas emporter la recherche : lecture et écriture sont tolérées
-    en échec, la requête retombe alors sur PostgreSQL comme avant.
-  */
-  const cached = await cache.get<SearchPayload>(cacheKey).catch(() => null)
-
-  if (cached) {
+  // Une entrée écrite avant le dernier changement décrit un catalogue qui n'existe plus.
+  if (cached && cached.at >= (invalidatedAt ?? 0)) {
+    const { at: _ecrite, ...payload } = cached
     res.setHeader("X-Search-Cache", "HIT")
-    journaliser(logger, normalized, "HIT", debut, cached.products.length)
+    journaliser(logger, normalized, "HIT", debut, payload.products.length)
     // `query` est renvoyé tel que le client l'a saisi, il n'a pas à sortir du cache.
-    res.json({ ...cached, query: term })
+    res.json({ ...payload, query: term })
     return
   }
 
@@ -231,10 +224,12 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
 
   const payload: SearchPayload = { products, brands }
   const vide = products.length === 0 && brands.length === 0
-  await cache.set(cacheKey, payload, vide ? CACHE_TTL_EMPTY : CACHE_TTL).catch(() => {})
+  await cache
+    .set(cacheKey, { ...payload, at: Date.now() }, vide ? SEARCH_TTL_EMPTY : SEARCH_TTL)
+    .catch(() => {})
 
-  res.setHeader("X-Search-Cache", "MISS")
-  journaliser(logger, normalized, "MISS", debut, products.length)
+  res.setHeader("X-Search-Cache", cached ? "STALE" : "MISS")
+  journaliser(logger, normalized, cached ? "STALE" : "MISS", debut, products.length)
   res.json({ ...payload, query: term })
 }
 
@@ -250,7 +245,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
 function journaliser(
   logger: { debug: (message: string) => void },
   terme: string,
-  cache: "HIT" | "MISS",
+  cache: "HIT" | "MISS" | "STALE",
   debut: number,
   resultats: number
 ): void {
