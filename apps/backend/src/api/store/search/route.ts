@@ -16,13 +16,19 @@ import type ProductAttributeModuleService from "../../../modules/product-attribu
 const MIN_TERM_LENGTH = 3
 /*
   L'autocomplétion défile : mieux vaut une liste longue qu'un client convaincu que son produit
-  n'existe pas parce qu'il n'entrait pas dans six lignes.
+  n'existe pas parce qu'il n'entrait pas dans six lignes. Le panneau en montre une douzaine
+  d'un coup et laisse défiler le reste.
 
-  Cent suffit à tout montrer sur ce catalogue — le terme le plus large, « pulp », en ramène
-  cent sept — pour cent vingt millisecondes et une trentaine de kilo-octets. La borne haute
-  reste : au-delà, le prix et le stock de chaque produit pèseraient plus que le service rendu.
+  Cinquante plutôt que cent. Ce nombre commande deux coûts à la fois : les octets envoyés, et
+  le travail de la seconde requête, qui va chercher le prix et le stock de chaque produit
+  retenu — la partie la plus lourde de la route en production, où les variantes existent. Le
+  diviser par deux les divise tous les deux.
+
+  Cinquante couvre les termes réellement tapés : « menthe » en ramène trente-cinq, « fraise »
+  cinquante-cinq. Seules les recherches par marque dépassent — « pulp » trouve cent sept
+  produits — et une marque a sa propre page, qu'un raccourci propose dans le même panneau.
 */
-const DEFAULT_LIMIT = 100
+const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 300
 
 /*
