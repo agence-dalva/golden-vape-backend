@@ -29,6 +29,27 @@ module.exports = defineConfig({
     }
   },
   modules: [
+    /*
+      Le cache de Medusa sur Redis, plutôt que dans la mémoire du processus.
+
+      Par défaut Medusa résout le module cache sur `cache-inmemory` : le cache n'est alors
+      partagé ni entre deux répliques, ni entre deux redémarrages. Redis est pourtant déjà là
+      — `redisUrl` plus haut lui confie les sessions — mais le framework ne bascule cache,
+      bus d'événements et moteur de workflow dessus tout seul que sur son propre hébergement,
+      quand `EXECUTION_CONTEXT` vaut `medusa-cloud`. Sur Railway, cette variable n'existe pas
+      et la bascule ne se déclenche jamais. D'où cette déclaration explicite.
+
+      Conditionnée à la présence de l'URL : en développement, sans Redis, Medusa retombe sur
+      le cache mémoire et le code appelant ne voit pas la différence.
+    */
+    ...(process.env.REDIS_URL
+      ? [
+          {
+            resolve: "@medusajs/medusa/cache-redis",
+            options: { redisUrl: process.env.REDIS_URL },
+          },
+        ]
+      : []),
     {
       resolve: "./src/modules/product-attribute",
     },
