@@ -9,8 +9,9 @@ import type { Knex } from "knex"
   règle « une facette ne se compte pas elle-même », le classement et la pagination, est
   identique et vit donc ici plutôt qu'en double.
 
-  Chaque route fournit son `cible` : un fragment SQL nommant les colonnes `id`, `title` et
-  `created_at`, avec ses propres paramètres.
+  Chaque route fournit son `cible` : le corps d'un SELECT rendant les colonnes `id`, `title` et
+  `created_at`, avec ses propres paramètres. L'enveloppe est posée ici, et elle est
+  `MATERIALIZED` — voir plus bas pourquoi cela n'a rien d'un détail.
 */
 
 /** Nombre de valeurs rendues par défaut. */
@@ -87,9 +88,22 @@ function clauseFiltres(filters: [string, string[]][], sauf?: string) {
   return { sql, bindings }
 }
 
-/** Les caractéristiques portées par les produits de l'ensemble de départ. */
+/*
+  Les deux ensembles de travail, calculés une fois chacun.
+
+  `MATERIALIZED` n'est pas une précaution de style. Sans lui, PostgreSQL inline une CTE
+  référencée une seule fois — c'est le cas de `valeurs`, qui n'apparaît que dans le `EXISTS`
+  du filtre — et la ré-exécute alors pour chaque ligne examinée. Mesuré sur la page de la
+  marque Pulp filtrée par contenance : dix mille sept cent dix-huit parcours complets de
+  `product_attribute_value`, et six secondes de réponse là où les autres critères en
+  demandaient soixante. Le plan choisi dépendait de la sélectivité estimée, si bien que le
+  défaut ne se voyait que sur certains couples critère/valeur.
+
+  Matérialisées, les deux CTE sont calculées une fois : huit millisecondes, quel que soit le
+  filtre, et la route des catégories y gagne aussi.
+*/
 const VALEURS = `
-  valeurs AS (
+  valeurs AS MATERIALIZED (
     SELECT pav.product_id, at.name AS type, at.allow_multiple, pav.value
     FROM cible c
     JOIN product_attribute_value pav ON pav.product_id = c.id AND pav.deleted_at IS NULL
@@ -122,6 +136,8 @@ export async function repondreFacettes(
     offset,
     order,
   }: {
+    /** Corps du SELECT de l'ensemble de départ ; l'enveloppe `cible AS MATERIALIZED` est
+        posée ici pour qu'aucune route ne puisse l'oublier. */
     cible: string
     /** Paramètres du fragment `cible`, dans son ordre. */
     bindings: string[]
@@ -155,8 +171,10 @@ export async function repondreFacettes(
   const parFacette = clauseFiltres(filters, "v.type")
 
   // `count(*) OVER ()` rend le total sur la même ligne que la page : une requête au lieu de deux.
+  const avec = `WITH cible AS MATERIALIZED (${cible}),${VALEURS}`
+
   const pageQuery = knex.raw(
-    `WITH ${cible},${VALEURS}
+    `${avec}
      SELECT c.id, count(*) OVER () AS total
      FROM cible c
      WHERE ${retenus.sql}
@@ -166,7 +184,7 @@ export async function repondreFacettes(
   )
 
   const facetsQuery = knex.raw(
-    `WITH ${cible},${VALEURS}
+    `${avec}
      SELECT v.type, v.allow_multiple, v.value, count(DISTINCT v.product_id)::int AS count
      FROM valeurs v
      JOIN cible c ON c.id = v.product_id

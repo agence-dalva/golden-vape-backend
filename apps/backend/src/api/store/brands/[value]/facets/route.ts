@@ -23,7 +23,6 @@ import { repondreFacettes } from "../../../../../lib/facets"
 // Les produits qui portent cette valeur pour l'attribut « Marque ». Le nom du type est écrit
 // ici plutôt que reçu en paramètre : c'est la page des marques, pas un filtre générique.
 const CIBLE = `
-  cible AS (
     SELECT DISTINCT p.id, p.title, p.created_at
     FROM product_attribute_value pav
     JOIN attribute_type at
@@ -33,8 +32,7 @@ const CIBLE = `
       ON p.id = pav.product_id
      AND p.status = 'published'
      AND p.deleted_at IS NULL
-    WHERE pav.value = ? AND pav.deleted_at IS NULL
-  )`
+    WHERE pav.value = ? AND pav.deleted_at IS NULL`
 
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const knex = req.scope.resolve(ContainerRegistrationKeys.PG_CONNECTION)

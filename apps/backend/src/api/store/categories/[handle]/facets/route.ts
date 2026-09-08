@@ -30,7 +30,6 @@ import { repondreFacettes } from "../../../../../lib/facets"
 // vente, lui, n'est pas exigé : cette boutique sert des produits publiés sans lien de canal,
 // et le filtrer rendrait les facettes plus strictes que la grille.
 const CIBLE = `
-  cible AS (
     SELECT DISTINCT p.id, p.title, p.created_at
     FROM product_category racine
     JOIN product_category descendance
@@ -43,8 +42,7 @@ const CIBLE = `
       ON p.id = pcp.product_id
      AND p.status = 'published'
      AND p.deleted_at IS NULL
-    WHERE racine.handle = ? AND racine.deleted_at IS NULL
-  )`
+    WHERE racine.handle = ? AND racine.deleted_at IS NULL`
 
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const knex = req.scope.resolve(ContainerRegistrationKeys.PG_CONNECTION)
