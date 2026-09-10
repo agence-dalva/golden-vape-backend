@@ -12,6 +12,52 @@ import type {
 const API_BASE = "https://panel.sendcloud.sc/api/v3"
 const OAUTH_TOKEN_URL = "https://account.sendcloud.com/oauth2/token"
 
+/**
+ * Cache des lectures.
+ *
+ * Un seul passage en caisse declenche une quinzaine d'appels : Medusa recalcule le prix de
+ * *toutes* les options a l'affichage, puis a chaque fois qu'une methode de livraison est
+ * posee sur le panier — donc au choix du mode, puis au choix du point relais. Or ces
+ * tarifs ne varient ni d'une minute a l'autre, ni d'un client a l'autre : la meme
+ * destination et le meme poids donnent la meme reponse.
+ *
+ * Le cache vit dans la memoire du processus, faute d'acces au module de cache depuis un
+ * provider de fulfillment. Il n'est donc partage ni entre repliques ni entre redemarrages ;
+ * c'est sans consequence ici, ou une replique sert de nombreux paniers, mais cela reste la
+ * limite a lever si la charge le justifiait un jour.
+ *
+ * Seules les lectures sont mises en cache. Annoncer ou annuler une expedition passe
+ * toujours par le reseau.
+ */
+const CACHE_TTL_MS = 10 * 60 * 1000
+/** Plafond, pour qu'une longue serie de codes postaux ne fasse pas enfler la memoire. */
+const CACHE_MAX = 500
+
+const cacheLectures = new Map<string, { at: number; valeur: unknown }>()
+
+function lireCache<T>(cle: string): T | undefined {
+  const entree = cacheLectures.get(cle)
+
+  if (!entree) return undefined
+
+  if (Date.now() - entree.at >= CACHE_TTL_MS) {
+    cacheLectures.delete(cle)
+    return undefined
+  }
+
+  return entree.valeur as T
+}
+
+function ecrireCache(cle: string, valeur: unknown): void {
+  // Les entrees sont inserees dans l'ordre : la premiere clef est la plus ancienne.
+  if (cacheLectures.size >= CACHE_MAX) {
+    const plusAncienne = cacheLectures.keys().next().value
+    if (plusAncienne !== undefined) cacheLectures.delete(plusAncienne)
+  }
+
+  cacheLectures.set(cle, { at: Date.now(), valeur })
+}
+
 /** Marge avant expiration : on renouvelle le jeton un peu avant l'heure. */
 const TOKEN_REFRESH_MARGIN_MS = 60_000
 
@@ -50,22 +96,32 @@ export class SendcloudClient {
     calculateQuotes?: boolean
     toServicePoint?: SendcloudServicePointRef
   }): Promise<SendcloudShippingOption[]> {
+    const corps = {
+      from_country_code: input.fromCountryCode,
+      to_country_code: input.toCountryCode,
+      from_postal_code: input.fromPostalCode,
+      to_postal_code: input.toPostalCode,
+      parcels: input.parcels,
+      to_service_point: input.toServicePoint,
+      functionalities: input.lastMile ? { last_mile: input.lastMile } : undefined,
+      calculate_quotes: input.calculateQuotes ?? false,
+    }
+
+    const cle = `options:${JSON.stringify(corps)}`
+    const enCache = lireCache<SendcloudShippingOption[]>(cle)
+
+    if (enCache) return enCache
+
     const body = await this.request<{ data?: SendcloudShippingOption[] }>(
       "POST",
       "/shipping-options",
-      {
-        from_country_code: input.fromCountryCode,
-        to_country_code: input.toCountryCode,
-        from_postal_code: input.fromPostalCode,
-        to_postal_code: input.toPostalCode,
-        parcels: input.parcels,
-        to_service_point: input.toServicePoint,
-        functionalities: input.lastMile ? { last_mile: input.lastMile } : undefined,
-        calculate_quotes: input.calculateQuotes ?? false,
-      }
+      corps
     )
 
-    return body.data ?? []
+    const resultat = body.data ?? []
+    ecrireCache(cle, resultat)
+
+    return resultat
   }
 
   /**
@@ -148,12 +204,20 @@ export class SendcloudClient {
       params.set("sw_longitude", input.bounds.swLng)
     }
 
+    const cle = `points:${params.toString()}`
+    const enCache = lireCache<SendcloudServicePointSearch>(cle)
+
+    if (enCache) return enCache
+
     const body = await this.request<{ data?: SendcloudServicePointSearch }>(
       "GET",
       `/service-points?${params.toString()}`
     )
 
-    return { results: body.data?.results ?? [], geocoding: body.data?.geocoding }
+    const resultat = { results: body.data?.results ?? [], geocoding: body.data?.geocoding }
+    ecrireCache(cle, resultat)
+
+    return resultat
   }
 
   private async request<T>(method: string, path: string, payload?: unknown): Promise<T> {
