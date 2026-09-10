@@ -29,9 +29,12 @@ const OFFRE: {
     description: "Retrait en commerce de proximité, sous 3 à 5 jours",
   },
   {
-    nom: "Bureau de poste",
+    // Le reseau Colissimo n'est pas que postal : mesure sur le Haut-Rhin, il compte
+    // 81 % de commerces et consignes pour 19 % de bureaux de poste. Le nommer
+    // « bureau de poste » decrivait la minorite.
+    nom: "Point relais ou bureau de poste",
     code: "colissimo:post-office",
-    description: "Retrait en bureau de poste ou consigne Pickup",
+    description: "Commerçants, consignes Pickup et bureaux de poste",
   },
   {
     nom: "À domicile",
@@ -159,7 +162,16 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
   )
 
   const existantes = await fulfillment.listShippingOptions({ service_zone: { id: zone.id } })
-  const parNom = new Map(existantes.map((o) => [o.name, o]))
+
+  // Appariement par code de service, non par nom : renommer une option doit la renommer,
+  // pas en creer une seconde en laissant la premiere en vente. Le nom est une etiquette,
+  // le code est l'identite.
+  const parCodeExistant = new Map<string, typeof existantes>()
+  for (const option of existantes) {
+    const code = (option.data as { shipping_option_code?: string } | null)?.shipping_option_code
+    if (!code) continue
+    parCodeExistant.set(code, [...(parCodeExistant.get(code) ?? []), option])
+  }
 
   console.info("")
 
@@ -171,18 +183,33 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
       continue
     }
 
-    // Une option deja creee voit son `data` rafraichi plutot qu'ignore : c'est lui que le
-    // tunnel de commande relit, et il doit suivre ce que le provider expose aujourd'hui.
-    const existante = parNom.get(entree.nom)
+    // Une option deja creee voit son nom et son `data` rafraichis plutot qu'ignores :
+    // c'est ce `data` que le tunnel de commande relit, il doit suivre ce que le provider
+    // expose aujourd'hui.
+    const [existante, ...doublons] = parCodeExistant.get(entree.code) ?? []
 
     if (existante) {
-      const identique = JSON.stringify(existante.data) === JSON.stringify(service)
+      const aRenommer = existante.name !== entree.nom
+      const aRafraichir = JSON.stringify(existante.data) !== JSON.stringify(service)
 
-      if (identique) {
-        console.info(`   « ${entree.nom} » a jour.`)
+      if (aRenommer || aRafraichir) {
+        await fulfillment.updateShippingOptions(existante.id, {
+          name: entree.nom,
+          data: service,
+        })
+        console.info(
+          aRenommer
+            ? `   ↻ « ${existante.name} » renommée « ${entree.nom} ».`
+            : `   ↻ « ${entree.nom} » : données rafraîchies.`
+        )
       } else {
-        await fulfillment.updateShippingOptions(existante.id, { data: service })
-        console.info(`   ↻ « ${entree.nom} » : données rafraîchies.`)
+        console.info(`   « ${entree.nom} » a jour.`)
+      }
+
+      // Un meme service ne doit exister qu'une fois : les doublons herites d'un
+      // renommage precedent sont retires de la vente plus bas.
+      for (const doublon of doublons) {
+        console.info(`   ⚠ doublon sur ${entree.code} : « ${doublon.name} ».`)
       }
       continue
     }
@@ -239,7 +266,16 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
     if (actuel === attendu) continue
 
     if (regle) {
-      await fulfillment.updateShippingOptionRules([{ id: regle.id, value: attendu }])
+      // La mise a jour exige la regle entiere : passer le seul champ modifie fait echouer
+      // la validation sur « Rule must have an attribute, an operator and a value ».
+      await fulfillment.updateShippingOptionRules([
+        {
+          id: regle.id,
+          attribute: "enabled_in_store",
+          operator: "eq",
+          value: attendu,
+        },
+      ])
     } else {
       await fulfillment.createShippingOptionRules([
         {
