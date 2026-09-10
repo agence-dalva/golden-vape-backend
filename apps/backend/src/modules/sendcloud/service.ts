@@ -266,9 +266,7 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
       name: `${option.carrier?.name ?? option.carrier?.code ?? "?"} — ${option.product?.name ?? option.code}`,
       shipping_option_code: option.code,
       carrier_code: option.carrier?.code,
-      is_service_point_required:
-        option.is_service_point_required ??
-        option.functionalities?.last_mile === "service_point",
+      is_service_point_required: exigeUnPointRelais(option),
     }
   }
 
@@ -331,6 +329,24 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
       "Aucun poids connu pour ce colis : renseigner le poids des variantes, saisir un poids manuel, ou configurer SENDCLOUD_FALLBACK_WEIGHT_GRAMS."
     )
   }
+}
+
+/**
+ * Ce service impose-t-il de désigner un point de retrait ?
+ *
+ * `is_service_point_required` figure dans la documentation mais pas dans les réponses
+ * réelles : c'est `functionalities.last_mile` qui tranche, et il prend trois valeurs —
+ * `home_delivery`, `service_point`, et `locker_or_service_point` pour les offres qui
+ * mêlent commerces et consignes automatiques, comme le retrait Colissimo. Une comparaison
+ * stricte à `service_point` laisserait donc passer cette derniere sans selecteur, et
+ * l'affranchissement echouerait faute de destination.
+ */
+function exigeUnPointRelais(option: SendcloudShippingOption): boolean {
+  if (typeof option.is_service_point_required === "boolean") {
+    return option.is_service_point_required
+  }
+
+  return Boolean(option.functionalities?.last_mile?.includes("service_point"))
 }
 
 /** Forme réelle du contexte de panier, que les types génériques de Medusa n'exposent pas. */
