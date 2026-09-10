@@ -13,10 +13,12 @@ import type { ExecArgs } from "@medusajs/framework/types"
  * corriger, ce fichier n'est qu'un point de départ raisonnable.
  */
 const REGLES: { motif: RegExp; grammes: number; libelle: string }[] = [
-  { motif: /\b200\s?ml\b/i, grammes: 320, libelle: "E-liquide 200 ml" },
-  { motif: /\b100\s?ml\b/i, grammes: 190, libelle: "E-liquide 100 ml" },
-  { motif: /\b50\s?ml\b/i, grammes: 120, libelle: "E-liquide 50 ml" },
-  { motif: /\b(10|30)\s?ml\b/i, grammes: 60, libelle: "E-liquide 10 à 30 ml" },
+  { motif: /\b200\s?ml\b/i, grammes: 230, libelle: "E-liquide 200 ml" },
+  { motif: /\b100\s?ml\b/i, grammes: 125, libelle: "E-liquide 100 ml" },
+  // Pese : un 50 ml plein, flacon compris, fait 65 g. Les autres contenances sont
+  // extrapolees a partir de lui et restent a confirmer sur une balance.
+  { motif: /\b50\s?ml\b/i, grammes: 65, libelle: "E-liquide 50 ml" },
+  { motif: /\b(10|30)\s?ml\b/i, grammes: 30, libelle: "E-liquide 10 à 30 ml" },
   { motif: /\b(kit|box|mod)\b/i, grammes: 450, libelle: "Kit, box ou mod" },
   { motif: /\b(tank|clearomiseur|atomiseur|pod)\b/i, grammes: 160, libelle: "Tank ou pod" },
   { motif: /\b(r[ée]sistance|coil|m[èe]che|coton)\b/i, grammes: 40, libelle: "Résistance ou coton" },
@@ -38,9 +40,13 @@ const PAR_DEFAUT = { grammes: 150, libelle: "Non reconnu" }
  *
  *   npx medusa exec ./src/scripts/set-default-weights.ts
  *   npx medusa exec ./src/scripts/set-default-weights.ts apply
+ *   npx medusa exec ./src/scripts/set-default-weights.ts apply force
  */
 export default async function setDefaultWeights({ container, args }: ExecArgs) {
   const appliquer = (args ?? []).includes("apply")
+  // `force` reecrit aussi les poids deja poses : indispensable apres correction d'une
+  // regle, sans quoi les variantes deja traitees garderaient l'ancienne valeur.
+  const forcer = (args ?? []).includes("force")
   const product = container.resolve(Modules.PRODUCT)
 
   const variantes = await product.listProductVariants(
@@ -48,10 +54,11 @@ export default async function setDefaultWeights({ container, args }: ExecArgs) {
     { select: ["id", "title", "weight", "product_id"], relations: ["product"], take: null }
   )
 
-  const aTraiter = variantes.filter((v) => !v.weight || v.weight <= 0)
+  const aTraiter = forcer ? variantes : variantes.filter((v) => !v.weight || v.weight <= 0)
 
   console.info(
-    `${variantes.length} variantes, dont ${aTraiter.length} sans poids.\n` +
+    `${variantes.length} variantes, ${aTraiter.length} à traiter` +
+      `${forcer ? " (réécriture forcée)" : " sans poids"}.\n` +
       (appliquer ? "Mode écriture.\n" : "Prévisualisation — relancer avec « apply » pour écrire.\n")
   )
 
