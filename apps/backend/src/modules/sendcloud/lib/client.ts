@@ -2,9 +2,10 @@ import { MedusaError } from "@medusajs/framework/utils"
 import type {
   AnnounceShipmentRequest,
   SendcloudOptions,
+  SendcloudContract,
   SendcloudParcel,
-  SendcloudServicePoint,
   SendcloudServicePointRef,
+  SendcloudServicePointSearch,
   SendcloudShippingOption,
 } from "../types"
 
@@ -77,36 +78,82 @@ export class SendcloudClient {
     return this.request<Record<string, unknown>>("POST", "/shipments/announce", request)
   }
 
+  /**
+   * Contrats transporteur rattachés au compte.
+   *
+   * Un compte sans contrat propre expédie aux tarifs négociés par Sendcloud ; avec, il
+   * expédie aux siens. C'est aussi ce qui dit si les contrats Colissimo et Chronopost du
+   * marchand ont bien été branchés.
+   */
+  async listContracts(): Promise<SendcloudContract[]> {
+    const body = await this.request<SendcloudContract[] | { data?: SendcloudContract[] }>(
+      "GET",
+      "/contracts"
+    )
+
+    return Array.isArray(body) ? body : body.data ?? []
+  }
+
   /** Annule une expédition annoncée, si le transporteur le permet. */
   async cancelShipment(shipmentId: string): Promise<void> {
     await this.request("POST", `/shipments/${encodeURIComponent(shipmentId)}/cancel`)
   }
 
-  /** Points relais d'une zone, pour le sélecteur du tunnel de commande. */
+  /**
+   * Points relais d'une zone.
+   *
+   * Trois façons de cadrer la recherche, selon l'usage : par code postal à l'ouverture du
+   * sélecteur, par coordonnées et rayon quand on géolocalise le client, par rectangle
+   * englobant quand il déplace la carte. Les noms de paramètres suivent ceux de l'API —
+   * `country_code`, `address_postal_code` — et non des raccourcis : envoyer `country`
+   * vaut un 400 « Field required ».
+   */
   async listServicePoints(input: {
-    country: string
-    carriers?: string[]
+    countryCode: string
+    carrierCodes?: string[]
     postalCode?: string
     city?: string
+    address?: string
     latitude?: string
     longitude?: string
+    /** Rayon en mètres depuis le point de référence. */
     radius?: number
-  }): Promise<SendcloudServicePoint[]> {
-    const params = new URLSearchParams({ country: input.country })
+    /** Rectangle englobant, pour suivre les déplacements d'une carte. */
+    bounds?: { neLat: string; neLng: string; swLat: string; swLng: string }
+  }): Promise<SendcloudServicePointSearch> {
+    const params = new URLSearchParams({ country_code: input.countryCode })
 
-    if (input.carriers?.length) params.set("carrier", input.carriers.join(","))
-    if (input.postalCode) params.set("postal_code", input.postalCode)
-    if (input.city) params.set("city", input.city)
+    // Sendcloud exige exactement une portee transporteur, et le parametre se **repete** :
+    // `carrier_code=colissimo&carrier_code=chronopost`. La liste separee par virgules est
+    // refusee en 400. A defaut, on retombe sur les transporteurs actives de l'integration —
+    // mais ce mode s'est revele ne remonter qu'un seul reseau, d'ou la liste explicite
+    // des que l'appelant sait ce qu'il veut afficher.
+    if (input.carrierCodes?.length) {
+      for (const code of input.carrierCodes) params.append("carrier_code", code)
+    } else {
+      params.set("use_integration_carriers", "true")
+    }
+    // Une seule source de localisation a la fois : adresse structuree, texte libre, ou
+    // coordonnees. Les melanger vaut un 400.
+    if (input.postalCode) params.set("address_postal_code", input.postalCode)
+    if (input.city) params.set("address_city", input.city)
+    if (input.address) params.set("address", input.address)
     if (input.latitude) params.set("latitude", input.latitude)
     if (input.longitude) params.set("longitude", input.longitude)
     if (input.radius) params.set("radius", String(input.radius))
+    if (input.bounds) {
+      params.set("ne_latitude", input.bounds.neLat)
+      params.set("ne_longitude", input.bounds.neLng)
+      params.set("sw_latitude", input.bounds.swLat)
+      params.set("sw_longitude", input.bounds.swLng)
+    }
 
-    const body = await this.request<SendcloudServicePoint[] | { data?: SendcloudServicePoint[] }>(
+    const body = await this.request<{ data?: SendcloudServicePointSearch }>(
       "GET",
       `/service-points?${params.toString()}`
     )
 
-    return Array.isArray(body) ? body : body.data ?? []
+    return { results: body.data?.results ?? [], geocoding: body.data?.geocoding }
   }
 
   private async request<T>(method: string, path: string, payload?: unknown): Promise<T> {

@@ -113,16 +113,44 @@ export type SendcloudShippingOption = {
 
 export type SendcloudServicePoint = {
   id: number
-  code?: string
   name: string
-  street: string
-  house_number: string
-  postal_code: string
-  city: string
-  country: string
-  latitude?: string
-  longitude?: string
+  /** Le CDN Sendcloud fournit logo et icône : rien à héberger côté front. */
+  carrier: { code: string; name: string; logo_url?: string; icon_url?: string }
+  /** Identifiant du point chez le transporteur — c'est lui qui part à l'affranchissement. */
+  carrier_service_point_id: string
+  carrier_shop_type?: string
+  /** Catégorie normalisée entre transporteurs : `post_office`, `shop`… */
+  general_shop_type?: string
+  address: {
+    street: string
+    house_number: string
+    postal_code: string
+    city: string
+    country_code: string
+  }
+  position?: { latitude: number; longitude: number }
+  contact?: { email?: string; phone?: string }
+  /** Créneaux par jour ; `null` signifie fermé. */
+  opening_times?: Record<string, { start_time: string; end_time: string }[] | null>
   distance?: number
-  carrier: string
-  formatted_opening_times?: Record<string, string[]>
+}
+
+/**
+ * Réponse de la recherche de points relais.
+ *
+ * `geocoding` rend le point de référence effectivement retenu par Sendcloud à partir de
+ * l'adresse fournie : c'est sur lui qu'il faut centrer la carte, et non sur une position
+ * devinée côté client.
+ */
+export type SendcloudServicePointSearch = {
+  results: SendcloudServicePoint[]
+  geocoding?: { latitude?: number; longitude?: number; [key: string]: unknown }
+}
+
+/** Contrat transporteur rattaché au compte Sendcloud. */
+export type SendcloudContract = {
+  id: number
+  carrier: { code?: string; name?: string } | string
+  client_id?: string
+  is_active?: boolean
 }
