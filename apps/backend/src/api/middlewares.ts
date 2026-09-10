@@ -33,5 +33,12 @@ export default defineMiddlewares({
       method: ["POST"],
       bodyParser: { preserveRawBody: true },
     },
+    {
+      // Meme raison chez Sendcloud : la signature HMAC porte sur les octets recus, pas
+      // sur un objet re-serialise.
+      matcher: "/hooks/delivery/sendcloud",
+      method: ["POST"],
+      bodyParser: { preserveRawBody: true },
+    },
   ],
 })
