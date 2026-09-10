@@ -4,6 +4,7 @@ import type {
   SendcloudOptions,
   SendcloudParcel,
   SendcloudServicePoint,
+  SendcloudServicePointRef,
   SendcloudShippingOption,
 } from "../types"
 
@@ -38,6 +39,15 @@ export class SendcloudClient {
     fromPostalCode?: string
     toPostalCode?: string
     parcels: SendcloudParcel[]
+    /**
+     * `last_mile` filtre le dernier kilometre : `home_delivery` ou `service_point`.
+     * Sans filtre, Sendcloud rend les deux familles melangees — on interroge donc
+     * separement pour savoir laquelle exige un point relais.
+     */
+    lastMile?: "home_delivery" | "service_point"
+    /** Sans devis, la reponse ne porte aucun prix : inutile pour `calculatePrice`. */
+    calculateQuotes?: boolean
+    toServicePoint?: SendcloudServicePointRef
   }): Promise<SendcloudShippingOption[]> {
     const body = await this.request<{ data?: SendcloudShippingOption[] }>(
       "POST",
@@ -48,6 +58,9 @@ export class SendcloudClient {
         from_postal_code: input.fromPostalCode,
         to_postal_code: input.toPostalCode,
         parcels: input.parcels,
+        to_service_point: input.toServicePoint,
+        functionalities: input.lastMile ? { last_mile: input.lastMile } : undefined,
+        calculate_quotes: input.calculateQuotes ?? false,
       }
     )
 

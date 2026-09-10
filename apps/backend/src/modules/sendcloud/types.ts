@@ -22,6 +22,15 @@ export type SendcloudOptions = {
   useOAuth: boolean
   /** Adresse d'expédition. Absente, Sendcloud reprend celle par défaut du compte. */
   senderAddressId?: number
+  /** Pays de départ, qui sert aussi de référence pour énumérer les options. */
+  defaultCountryCode?: string
+  /**
+   * Poids de repli, en grammes, quand aucun article ne porte de poids.
+   *
+   * Laissé vide, l'affranchissement échoue plutôt que de déclarer une valeur au hasard :
+   * un colis sous-évalué est repesé par le transporteur, puis refacturé.
+   */
+  fallbackParcelWeightGrams?: number
 }
 
 /** Poids et dimensions, tels que l'API les attend — valeurs en chaînes, unité explicite. */
@@ -92,7 +101,10 @@ export type SendcloudShippingOption = {
   code: string
   carrier: { code: string; name?: string }
   product: { code: string; name: string }
-  functionalities?: Record<string, unknown>
+  /** `last_mile` vaut `home_delivery` ou `service_point`. */
+  functionalities?: { last_mile?: string; [key: string]: unknown }
+  /** Seul champ qui fasse foi pour exiger un point relais a la commande. */
+  is_service_point_required?: boolean
   quotes?: {
     price: { total: { value: string; currency: string } }
   }[]
