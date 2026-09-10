@@ -1,6 +1,10 @@
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import type { ExecArgs } from "@medusajs/framework/types"
-import { batchLinksWorkflow, createShippingOptionsWorkflow } from "@medusajs/medusa/core-flows"
+import {
+  batchLinksWorkflow,
+  createShippingOptionsWorkflow,
+  linkSalesChannelsToStockLocationWorkflow,
+} from "@medusajs/medusa/core-flows"
 
 const PROVIDER_ID = "sendcloud_sendcloud"
 
@@ -56,7 +60,7 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
   // 1. Emplacement, zone de service et profil : les trois rattachements d'une option.
   const { data: emplacements } = await query.graph({
     entity: "stock_location",
-    fields: ["id", "name", "fulfillment_providers.id"],
+    fields: ["id", "name", "fulfillment_providers.id", "sales_channels.id"],
   })
   const emplacement = emplacements[0]
 
@@ -107,7 +111,30 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
     console.info(`\n✅ Fournisseur ${PROVIDER_ID} rattaché à « ${emplacement.name} ».`)
   }
 
-  // 3. Les services tels que le provider les expose. Leur objet complet est recopié dans
+  // 3. Rattacher l'emplacement aux canaux de vente.
+  //
+  //    Medusa ne propose une option de livraison que si son ensemble d'expedition est
+  //    joignable depuis le canal de vente du panier. Sans ce lien, le tunnel affiche une
+  //    liste de transporteurs vide, sans erreur ni explication — le symptome est muet.
+  const salesChannel = container.resolve(Modules.SALES_CHANNEL)
+  const canaux = await salesChannel.listSalesChannels({}, { take: 20 })
+  const dejaRattaches = new Set(
+    (emplacement.sales_channels ?? []).map((c) => (c as { id?: string } | null)?.id)
+  )
+  const aRattacher = canaux.filter((c) => !dejaRattaches.has(c.id))
+
+  if (aRattacher.length === 0) {
+    console.info(`Canaux de vente     : deja rattaches.`)
+  } else {
+    await linkSalesChannelsToStockLocationWorkflow(container).run({
+      input: { id: emplacement.id, add: aRattacher.map((c) => c.id) },
+    })
+    console.info(
+      `✅ Canaux de vente rattaches : ${aRattacher.map((c) => c.name).join(", ")}`
+    )
+  }
+
+  // 4. Les services tels que le provider les expose. Leur objet complet est recopié dans
   //    le `data` de l'option : c'est lui que le tunnel de commande relit pour savoir s'il
   //    doit demander un point relais.
   const services = await fulfillment.retrieveFulfillmentOptions(PROVIDER_ID)
