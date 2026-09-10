@@ -177,6 +177,14 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
       )
     }
 
+    // Franchise de port. Elle est appliquee ici plutot que par une promotion Medusa :
+    // ses regles n'acceptent que des attributs de produit, de client ou de pays, jamais
+    // un montant de panier. Le prix rendu par le provider fait foi, le total suit, et
+    // aucune constante n'a besoin d'exister dans l'interface.
+    if (this.franchiseAtteinte(cart)) {
+      return { calculated_amount: 0, is_calculated_price_tax_inclusive: false }
+    }
+
     return {
       calculated_amount: Number(montant),
       is_calculated_price_tax_inclusive: false,
@@ -259,6 +267,22 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
     return {}
   }
 
+  /** Le panier atteint-il le montant qui offre la livraison ? */
+  private franchiseAtteinte(cart: CartLikeContext): boolean {
+    const seuil = this.options_.freeShippingFromSubtotal
+
+    if (!seuil || seuil <= 0) {
+      return false
+    }
+
+    const sousTotal = (cart?.items ?? []).reduce((somme, item) => {
+      const prix = Number(item?.unit_price ?? 0)
+      return somme + (Number.isFinite(prix) ? prix : 0) * Number(item?.quantity ?? 0)
+    }, 0)
+
+    return sousTotal >= seuil
+  }
+
   private toFulfillmentOption(option: SendcloudShippingOption): FulfillmentOption {
     return {
       id: option.code,
@@ -266,6 +290,7 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
       shipping_option_code: option.code,
       carrier_code: option.carrier?.code,
       is_service_point_required: exigeUnPointRelais(option),
+      free_shipping_from_subtotal: this.options_.freeShippingFromSubtotal ?? null,
     }
   }
 
@@ -365,6 +390,8 @@ type CartLikeContext = {
   items?: {
     id?: string
     quantity?: number
+    /** Hors taxes : c'est l'unite dans laquelle Medusa transmet les prix de ligne. */
+    unit_price?: number | string | null
     variant?: { weight?: number | null } | null
   }[]
 }

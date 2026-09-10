@@ -31,6 +31,16 @@ export type SendcloudOptions = {
    * un colis sous-évalué est repesé par le transporteur, puis refacturé.
    */
   fallbackParcelWeightGrams?: number
+  /**
+   * Montant hors taxes du panier a partir duquel la livraison est offerte.
+   *
+   * Exprime en HT parce que c'est l'unite que le provider voit : les prix de ligne que
+   * Medusa lui transmet sont hors taxes. A 20 %, 50 € HT correspondent aux 60 € TTC
+   * annonces au client.
+   *
+   * Non defini, aucune franchise n'est appliquee.
+   */
+  freeShippingFromSubtotal?: number
 }
 
 /** Poids et dimensions, tels que l'API les attend — valeurs en chaînes, unité explicite. */

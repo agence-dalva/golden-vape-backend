@@ -21,5 +21,8 @@ export function sendcloudOptionsFromEnv(): SendcloudOptions {
     fallbackParcelWeightGrams: process.env.SENDCLOUD_FALLBACK_WEIGHT_GRAMS
       ? Number(process.env.SENDCLOUD_FALLBACK_WEIGHT_GRAMS)
       : undefined,
+    freeShippingFromSubtotal: process.env.SHIPPING_FREE_FROM_SUBTOTAL
+      ? Number(process.env.SHIPPING_FREE_FROM_SUBTOTAL)
+      : undefined,
   }
 }
