@@ -71,8 +71,18 @@ const OFFRE: {
  * environnement neuf que pour ajouter une offre à un environnement en service.
  *
  *   npx medusa exec ./src/scripts/setup-sendcloud-shipping.ts
+ *   npx medusa exec ./src/scripts/setup-sendcloud-shipping.ts zone=France
+ *
+ * En production le projet est compile : viser le .js plutot que le .ts.
  */
-export default async function setupSendcloudShipping({ container }: ExecArgs) {
+export default async function setupSendcloudShipping({ container, args }: ExecArgs) {
+  // Selection explicite, pour les environnements qui comptent plusieurs zones ou
+  // plusieurs entrepots : `zone=France` et `emplacement=Golden Vape`.
+  const demande = (prefixe: string) =>
+    (args ?? []).find((a) => a.startsWith(`${prefixe}=`))?.slice(prefixe.length + 1)
+  const zoneDemandee = demande("zone")
+  const emplacementDemande = demande("emplacement")
+
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const fulfillment = container.resolve(Modules.FULFILLMENT)
 
@@ -81,18 +91,46 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
     entity: "stock_location",
     fields: ["id", "name", "fulfillment_providers.id", "sales_channels.id"],
   })
-  const emplacement = emplacements[0]
+  const emplacement = emplacementDemande
+    ? emplacements.find((e) => e.name === emplacementDemande)
+    : emplacements[0]
 
   if (!emplacement) {
-    console.error("❌ Aucun emplacement de stock. En créer un dans l'administration d'abord.")
+    console.error(
+      emplacementDemande
+        ? `❌ Aucun emplacement nommé « ${emplacementDemande} ».`
+        : "❌ Aucun emplacement de stock. En créer un dans l'administration d'abord."
+    )
     return
   }
 
-  const zones = await fulfillment.listServiceZones({}, { take: 5 })
-  const zone = zones[0]
+  // Choisir en silence quand plusieurs existent, c'est rattacher l'offre au mauvais
+  // entrepot sans que personne ne s'en apercoive. Mieux vaut refuser et demander.
+  if (!emplacementDemande && emplacements.length > 1) {
+    console.error(
+      `❌ ${emplacements.length} emplacements de stock. Preciser lequel :\n` +
+        emplacements.map((e) => `      emplacement=${e.name}`).join("\n")
+    )
+    return
+  }
+
+  const zones = await fulfillment.listServiceZones({}, { take: 50 })
+  const zone = zoneDemandee ? zones.find((z) => z.name === zoneDemandee) : zones[0]
 
   if (!zone) {
-    console.error("❌ Aucune zone de service. En créer une sur l'ensemble d'expédition.")
+    console.error(
+      zoneDemandee
+        ? `❌ Aucune zone nommée « ${zoneDemandee} ».`
+        : "❌ Aucune zone de service. En créer une sur l'ensemble d'expédition."
+    )
+    return
+  }
+
+  if (!zoneDemandee && zones.length > 1) {
+    console.error(
+      `❌ ${zones.length} zones de service. Preciser laquelle :\n` +
+        zones.map((z) => `      zone=${z.name}`).join("\n")
+    )
     return
   }
 
