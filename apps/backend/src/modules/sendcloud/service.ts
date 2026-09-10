@@ -150,17 +150,16 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
     const cart = context as unknown as CartLikeContext
     const destination = cart?.shipping_address
 
-    if (!destination?.country_code) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        "Une adresse de livraison est nécessaire pour calculer les frais de port."
-      )
-    }
+    // Le tunnel propose les modes de livraison avant de demander l'adresse : sans elle, on
+    // annonce le tarif du pays de depart, qui est celui de la quasi-totalite des paniers.
+    // Le prix est recalcule des que l'adresse est connue, et c'est celui-la qui engage.
+    const paysDepart = this.options_.defaultCountryCode ?? "FR"
+    const paysDestination = destination?.country_code?.toUpperCase() ?? paysDepart
 
     const options = await this.client_.listShippingOptions({
-      fromCountryCode: this.options_.defaultCountryCode ?? "FR",
-      toCountryCode: destination.country_code.toUpperCase(),
-      toPostalCode: destination.postal_code ?? undefined,
+      fromCountryCode: paysDepart,
+      toCountryCode: paysDestination,
+      toPostalCode: destination?.postal_code ?? undefined,
       parcels: [{ weight: { value: String(this.cartWeightGrams(cart)), unit: "g" } }],
       calculateQuotes: true,
       toServicePoint: (data as { service_point_id?: number })?.service_point_id
