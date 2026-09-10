@@ -284,11 +284,31 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
   }
 
   private toFulfillmentOption(option: SendcloudShippingOption): FulfillmentOption {
+    const transporteur = option.carrier?.code
+
     return {
       id: option.code,
-      name: `${option.carrier?.name ?? option.carrier?.code ?? "?"} — ${option.product?.name ?? option.code}`,
+      name: `${option.carrier?.name ?? transporteur ?? "?"} — ${option.product?.name ?? option.code}`,
       shipping_option_code: option.code,
-      carrier_code: option.carrier?.code,
+      carrier_code: transporteur,
+      carrier_name: option.carrier?.name ?? transporteur ?? null,
+      /** Nom commercial du service — « Chrono Shop2Shop », « Colissimo Home ». */
+      product_name: option.product?.name ?? null,
+      /**
+       * Logo du transporteur, servi par le CDN de Sendcloud.
+       *
+       * L'endpoint des options ne le rend pas, contrairement a celui des points relais :
+       * l'URL est donc reconstruite sur le motif que ce dernier expose. Verifie pour
+       * Colissimo et Chronopost. Le tunnel retombe sur le nom si l'image ne charge pas —
+       * un motif non documente peut changer sans preavis.
+       */
+      carrier_logo_url: transporteur
+        ? `https://cdn.sendcloud.com/global-media/${transporteur}/img/logo.svg`
+        : null,
+      /** Variante carree du logo, mieux adaptee a une pastille qu'un logotype allonge. */
+      carrier_icon_url: transporteur
+        ? `https://cdn.sendcloud.com/global-media/${transporteur}/img/icon.svg`
+        : null,
       is_service_point_required: exigeUnPointRelais(option),
       free_shipping_from_subtotal: this.options_.freeShippingFromSubtotal ?? null,
     }
