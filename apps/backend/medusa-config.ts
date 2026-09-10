@@ -1,5 +1,6 @@
 import { loadEnv, defineConfig } from '@medusajs/framework/utils'
 import { moneticoOptionsFromEnv } from './src/modules/monetico/lib/options'
+import { sendcloudOptionsFromEnv } from './src/modules/sendcloud/lib/options'
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
 
@@ -61,6 +62,33 @@ module.exports = defineConfig({
             resolve: "./src/modules/monetico",
             id: "monetico",
             options: moneticoOptionsFromEnv(),
+          },
+        ],
+      },
+    },
+    /*
+      Transporteurs.
+
+      Medusa enregistre le module `fulfillment` implicitement, avec le seul provider
+      `manual`. Le declarer ici pour y ajouter Sendcloud REMPLACE cette configuration
+      implicite : omettre `manual` priverait de provider les options de livraison qui s'en
+      servent deja, et casserait le panier. Les deux coexistent donc.
+
+      Sendcloud sert d'agregateur — Colissimo, Chronopost et leurs points relais par une
+      seule API — ce qui evite d'ecrire un provider par transporteur, dont un en SOAP.
+    */
+    {
+      resolve: "@medusajs/fulfillment",
+      options: {
+        providers: [
+          {
+            resolve: "@medusajs/fulfillment-manual",
+            id: "manual",
+          },
+          {
+            resolve: "./src/modules/sendcloud",
+            id: "sendcloud",
+            options: sendcloudOptionsFromEnv(),
           },
         ],
       },

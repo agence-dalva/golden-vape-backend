@@ -1,3 +1,5 @@
+import { Modules } from "@medusajs/framework/utils"
+import type { ExecArgs } from "@medusajs/framework/types"
 import { SendcloudClient } from "../modules/sendcloud/lib/client"
 import { sendcloudOptionsFromEnv } from "../modules/sendcloud/lib/options"
 
@@ -11,7 +13,7 @@ import { sendcloudOptionsFromEnv } from "../modules/sendcloud/lib/options"
  *
  *   npx medusa exec ./src/scripts/probe-sendcloud.ts
  */
-export default async function probeSendcloud() {
+export default async function probeSendcloud({ container }: ExecArgs) {
   const options = sendcloudOptionsFromEnv()
 
   if (!options.publicKey || !options.secretKey) {
@@ -100,5 +102,29 @@ export default async function probeSendcloud() {
     console.error(
       "   Un 403 signifie que la case « Service Points » n'est pas cochée sur l'intégration."
     )
+  }
+
+  // 4. Le provider tel que Medusa l'expose.
+  //
+  // C'est le maillon dont depend le tunnel de commande : le `data` de chaque option est
+  // recopie par Medusa dans l'option de livraison, et le front y lit
+  // `is_service_point_required` pour decider s'il doit afficher le selecteur.
+  try {
+    const fulfillment = container.resolve(Modules.FULFILLMENT)
+    const exposees = await fulfillment.retrieveFulfillmentOptions("sendcloud_sendcloud")
+
+    console.info(`\nOptions exposees par le provider a Medusa : ${exposees.length}`)
+
+    const relais = exposees.filter(
+      (o) => (o as { is_service_point_required?: boolean }).is_service_point_required
+    )
+    console.info(`   dont ${relais.length} en point relais`)
+
+    for (const option of exposees.slice(0, 4)) {
+      console.info(`   ${JSON.stringify(option)}`)
+    }
+  } catch (e) {
+    console.error(`\n❌ Provider non joignable depuis Medusa : ${(e as Error).message}`)
+    console.error("   Verifier la declaration du module fulfillment dans medusa-config.ts.")
   }
 }
