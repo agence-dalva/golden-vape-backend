@@ -16,14 +16,20 @@ const PROVIDER_ID = "sendcloud_sendcloud"
  * l'agrégateur permet d'abstraire. Modifier cette liste et rejouer le script suffit à
  * ajuster l'offre : les options déjà créées sont laissées telles quelles.
  */
-const OFFRE = [
+const OFFRE: {
+  nom: string
+  code: string
+  description: string
+  /** Faux pour retirer l'option de la boutique sans la supprimer. */
+  actif?: boolean
+}[] = [
   {
     nom: "Point relais",
     code: "chronopost:shop2shop",
     description: "Retrait en commerce de proximité, sous 3 à 5 jours",
   },
   {
-    nom: "Point relais La Poste",
+    nom: "Bureau de poste",
     code: "colissimo:post-office",
     description: "Retrait en bureau de poste ou consigne Pickup",
   },
@@ -33,16 +39,26 @@ const OFFRE = [
     description: "Livraison à votre adresse sous 2 à 3 jours ouvrés",
   },
   {
+    nom: "À domicile, en boîte aux lettres",
+    code: "chronopost:18mailbox",
+    description: "Déposé dans votre boîte aux lettres le lendemain",
+  },
+  {
+    // Conservees mais retirees de la boutique : l'offre se limite pour l'instant au
+    // standard et aux points relais. Repasser `actif` a vrai et rejouer le script suffit.
     nom: "À domicile contre signature",
     code: "colissimo:home/signature,fr",
     description: "Remise en main propre, contre signature",
+    actif: false,
   },
   {
     nom: "Express avant 18 h",
     code: "chronopost:18",
     description: "Livraison le lendemain avant 18 h",
+    actif: false,
   },
 ]
+
 
 /**
  * Met en place les options de livraison Sendcloud.
@@ -194,6 +210,55 @@ export default async function setupSendcloudShipping({ container }: ExecArgs) {
 
     const relais = service.is_service_point_required ? "  (point relais)" : ""
     console.info(`   ✅ « ${entree.nom} » → ${entree.code}${relais}`)
+  }
+
+  // Visibilite en boutique.
+  //
+  // Medusa n'a pas de drapeau « actif » sur une option : c'est une regle
+  // `enabled_in_store` qui la gouverne, comparee au contexte que la boutique transmet en
+  // listant les options d'un panier. Poser la regle a « false » retire l'option de la
+  // vente sans rien supprimer — ni son historique, ni les commandes qui s'en servent.
+  const options = await fulfillment.listShippingOptions(
+    { service_zone: { id: zone.id } },
+    { relations: ["rules"] }
+  )
+
+  // Le script fait autorite sur l'offre : une option de la zone absente de la liste est
+  // retiree de la vente. C'est ce qui rattrape les renommages, qui creent une option et
+  // laissent l'ancienne en place, visible et concurrente.
+  const attendus = new Map(
+    OFFRE.map((entree) => [entree.nom, entree.actif === false ? "false" : "true"])
+  )
+
+  for (const option of options) {
+    const attendu = attendus.get(option.name) ?? "false"
+    const nom = option.name
+    const regle = (option.rules ?? []).find((r) => r.attribute === "enabled_in_store")
+    const actuel = regle ? String(regle.value) : "true"
+
+    if (actuel === attendu) continue
+
+    if (regle) {
+      await fulfillment.updateShippingOptionRules([{ id: regle.id, value: attendu }])
+    } else {
+      await fulfillment.createShippingOptionRules([
+        {
+          shipping_option_id: option.id,
+          attribute: "enabled_in_store",
+          operator: "eq",
+          value: attendu,
+        },
+      ])
+    }
+
+    console.info(
+      `   ${attendu === "true" ? "◉" : "○"} « ${nom} » ` +
+        (attendu === "true"
+          ? "remise en vente."
+          : attendus.has(nom)
+            ? "retiree de la vente."
+            : "retiree de la vente (absente de l'offre).")
+    )
   }
 
   console.info(
