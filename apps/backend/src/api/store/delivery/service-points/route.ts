@@ -67,11 +67,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
   })
 
   res.json({
-    // Point de référence retenu par Sendcloud : c'est sur lui qu'il faut centrer la carte,
-    // plutôt que sur une position devinée à partir de la saisie.
-    center: recherche.geocoding
-      ? { latitude: recherche.geocoding.latitude, longitude: recherche.geocoding.longitude }
-      : null,
+    // Sendcloud ne rend pas de coordonnées pour la zone cherchée, seulement l'adresse
+    // qu'il a reconnue. Le centrage de la carte se fait donc en cadrant sur les points.
+    place: recherche.geocoding?.formatted_address ?? null,
     points: regrouperParLieu(recherche.results).slice(0, MAX_POINTS),
   })
 }

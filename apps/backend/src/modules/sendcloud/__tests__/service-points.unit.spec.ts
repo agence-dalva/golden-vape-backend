@@ -18,6 +18,7 @@ function point(
     },
     position: partiel.position,
     general_shop_type: partiel.general_shop_type,
+    distance: partiel.distance,
   }
 }
 
@@ -73,6 +74,25 @@ describe("regrouperParLieu", () => {
     ])
 
     expect(groupes).toHaveLength(2)
+  })
+
+  it("classe les lieux du plus proche au plus lointain", () => {
+    const groupes = regrouperParLieu([
+      point({ carrierCode: "colissimo", name: "LOIN", distance: 2800, position: { latitude: 47.7, longitude: 7.5 } }),
+      point({ carrierCode: "colissimo", name: "PRES", distance: 89, position: { latitude: 47.63, longitude: 7.47 } }),
+      point({ carrierCode: "colissimo", name: "MOYEN", distance: 2100, position: { latitude: 47.65, longitude: 7.48 } }),
+    ])
+
+    expect(groupes.map((g) => g.name)).toEqual(["PRES", "MOYEN", "LOIN"])
+  })
+
+  it("relegue en fin de liste un point sans distance connue", () => {
+    const groupes = regrouperParLieu([
+      point({ carrierCode: "colissimo", name: "SANS", position: { latitude: 47.7, longitude: 7.5 } }),
+      point({ carrierCode: "colissimo", name: "AVEC", distance: 500, position: { latitude: 47.63, longitude: 7.47 } }),
+    ])
+
+    expect(groupes.map((g) => g.name)).toEqual(["AVEC", "SANS"])
   })
 
   it("rend un tableau vide sans points", () => {

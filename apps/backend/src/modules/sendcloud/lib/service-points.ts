@@ -7,7 +7,10 @@ export type PointRegroupe = {
   position: SendcloudServicePoint["position"]
   shop_type?: string
   opening_times?: SendcloudServicePoint["opening_times"]
+  /** En metres, depuis le point de recherche : sert a trier et a situer. */
   distance?: number
+  is_open_tomorrow?: boolean
+  next_open_at?: string | null
   /** Un même commerce peut servir plusieurs réseaux ; l'identifiant diffère pour chacun. */
   carriers: {
     code: string
@@ -58,9 +61,12 @@ export function regrouperParLieu(points: SendcloudServicePoint[]): PointRegroupe
       shop_type: point.general_shop_type,
       opening_times: point.opening_times,
       distance: point.distance,
+      is_open_tomorrow: point.is_open_tomorrow,
+      next_open_at: point.next_open_at,
       carriers: [transporteur],
     })
   }
 
-  return [...parLieu.values()]
+  // Le plus proche d'abord : c'est le seul critere qui compte pour choisir un relais.
+  return [...parLieu.values()].sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))
 }

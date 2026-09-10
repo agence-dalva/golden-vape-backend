@@ -132,7 +132,11 @@ export type SendcloudServicePoint = {
   contact?: { email?: string; phone?: string }
   /** Créneaux par jour ; `null` signifie fermé. */
   opening_times?: Record<string, { start_time: string; end_time: string }[] | null>
+  /** Distance au point de recherche, en mètres. */
   distance?: number
+  is_open_tomorrow?: boolean
+  /** Prochaine ouverture, quand le point est ferme a l'instant. */
+  next_open_at?: string | null
 }
 
 /**
@@ -144,7 +148,12 @@ export type SendcloudServicePoint = {
  */
 export type SendcloudServicePointSearch = {
   results: SendcloudServicePoint[]
-  geocoding?: { latitude?: number; longitude?: number; [key: string]: unknown }
+  /**
+   * Ce que Sendcloud a compris de l'adresse cherchee. Attention : il ne rend ni latitude
+   * ni longitude, seulement un statut et une adresse normalisee — le centrage de la carte
+   * doit donc venir du cadrage sur les points trouves.
+   */
+  geocoding?: { status?: string; precision?: string; formatted_address?: string }
 }
 
 /** Contrat transporteur rattaché au compte Sendcloud. */
