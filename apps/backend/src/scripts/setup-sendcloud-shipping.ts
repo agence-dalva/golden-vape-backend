@@ -60,6 +60,17 @@ const OFFRE: {
     description: "Livraison le lendemain avant 18 h",
     actif: false,
   },
+  {
+    // Sendcloud n'a pas d'environnement de test : c'est la « lettre non affranchie » qui
+    // en tient lieu. Elle suit tout le circuit — annonce, étiquette, suivi, annulation —
+    // sans jamais être facturée. Jamais en vente : `actif` à faux la cache de la boutique,
+    // mais l'administration la propose sur une commande provisoire, ce qui suffit à
+    // vérifier l'affranchissement de bout en bout.
+    nom: "Lettre non affranchie (test)",
+    code: "sendcloud:letter",
+    description: "Étiquette d'essai, jamais facturée — réservée à l'administration",
+    actif: false,
+  },
 ]
 
 
