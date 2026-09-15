@@ -4,9 +4,11 @@ import type {
   SendcloudOptions,
   SendcloudContract,
   SendcloudParcel,
+  SendcloudSenderAddress,
   SendcloudServicePointRef,
   SendcloudServicePointSearch,
   SendcloudShippingOption,
+  SendcloudShipment,
 } from "../types"
 
 const API_BASE = "https://panel.sendcloud.sc/api/v3"
@@ -130,8 +132,72 @@ export class SendcloudClient {
    * La variante synchrone attend le transporteur : la réponse porte donc directement le
    * numéro de suivi et l'étiquette, ce que le provider de fulfillment doit rendre à Medusa.
    */
-  async announceShipment(request: AnnounceShipmentRequest): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("POST", "/shipments/announce", request)
+  async announceShipment(request: AnnounceShipmentRequest): Promise<SendcloudShipment> {
+    const body = await this.request<{ data?: SendcloudShipment }>(
+      "POST",
+      "/shipments/announce",
+      request
+    )
+
+    if (!body.data?.id) {
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        "Sendcloud a accepté l'expédition mais n'a pas rendu son identifiant."
+      )
+    }
+
+    return body.data
+  }
+
+  /**
+   * Document d'un colis — l'étiquette, le plus souvent — en binaire.
+   *
+   * Le lien que porte la réponse d'annonce pointe ici, mais derrière l'authentification
+   * API : c'est ce backend qui va le chercher pour le marchand. `dpi` ne vaut que pour les
+   * formats matriciels ; en PDF à 72 points, l'étiquette reste vectorielle.
+   */
+  async downloadParcelDocument(
+    parcelId: number,
+    type: "label" | "customs-declaration" | "air-waybill" | "proof-of-delivery" = "label",
+    format: "application/pdf" | "application/zpl" | "image/png" = "application/pdf"
+  ): Promise<{ contentType: string; body: Buffer }> {
+    const res = await fetch(`${API_BASE}/parcels/${parcelId}/documents/${type}`, {
+      headers: { ...(await this.authHeaders()), accept: format },
+    })
+
+    if (!res.ok) {
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        `Sendcloud a répondu ${res.status} sur le document « ${type} » du colis ${parcelId} : ${(await res.text()).slice(0, 500)}`
+      )
+    }
+
+    return {
+      contentType: res.headers.get("content-type") ?? format,
+      body: Buffer.from(await res.arrayBuffer()),
+    }
+  }
+
+  /**
+   * Adresses d'expédition enregistrées dans le compte.
+   *
+   * Le panel en désigne une « par défaut », mais l'API ne rend pas ce drapeau : quand
+   * il n'y en a qu'une, c'est forcément elle. Un compte n'en change presque jamais, la
+   * réponse est mise en cache comme les autres lectures.
+   */
+  async listSenderAddresses(): Promise<SendcloudSenderAddress[]> {
+    const cle = "sender-addresses"
+    const enCache = lireCache<SendcloudSenderAddress[]>(cle)
+    if (enCache) return enCache
+
+    const body = await this.request<{ data?: SendcloudSenderAddress[] }>(
+      "GET",
+      "/addresses/sender-addresses?page_size=100"
+    )
+    const adresses = body.data ?? []
+    ecrireCache(cle, adresses)
+
+    return adresses
   }
 
   /**

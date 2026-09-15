@@ -17,6 +17,7 @@ export function sendcloudOptionsFromEnv(): SendcloudOptions {
     senderAddressId: process.env.SENDCLOUD_SENDER_ADDRESS_ID
       ? Number(process.env.SENDCLOUD_SENDER_ADDRESS_ID)
       : undefined,
+    backendUrl: process.env.MEDUSA_BACKEND_URL?.replace(/\/+$/, "") || undefined,
     defaultCountryCode: process.env.SENDCLOUD_COUNTRY_CODE ?? "FR",
     fallbackParcelWeightGrams: process.env.SENDCLOUD_FALLBACK_WEIGHT_GRAMS
       ? Number(process.env.SENDCLOUD_FALLBACK_WEIGHT_GRAMS)

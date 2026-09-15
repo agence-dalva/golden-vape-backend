@@ -12,6 +12,7 @@ import type {
   ValidateFulfillmentDataContext,
 } from "@medusajs/framework/types"
 import { SendcloudClient } from "./lib/client"
+import { labelsPourMedusa, sansFichiers } from "./lib/shipments"
 import type {
   SendcloudAddress,
   SendcloudOptions,
@@ -19,7 +20,20 @@ import type {
   SendcloudShippingOption,
 } from "./types"
 
-type InjectedDependencies = { logger: Logger }
+/**
+ * Le conteneur du module de fulfillment, dont le provider reçoit la « cradle » : outre le
+ * logger, il expose les services internes du module — dont celui des options de livraison,
+ * que Medusa lui-même consulte pour les retours mais pas pour les expéditions.
+ */
+type InjectedDependencies = {
+  logger: Logger
+  shippingOptionService?: {
+    retrieve(
+      id: string,
+      config?: { select?: string[] }
+    ): Promise<{ id: string; data?: Record<string, unknown> | null }>
+  }
+}
 
 /** Durée de vie du catalogue d'options. Il ne bouge qu'au gré des contrats du compte. */
 const OPTIONS_CACHE_MS = 10 * 60 * 1000
@@ -41,15 +55,17 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
   protected readonly logger_: Logger
   protected readonly options_: SendcloudOptions
   protected readonly client_: SendcloudClient
+  protected readonly shippingOptions_?: InjectedDependencies["shippingOptionService"]
 
   private optionsCache?: { at: number; value: FulfillmentOption[] }
 
-  constructor({ logger }: InjectedDependencies, options: SendcloudOptions) {
+  constructor({ logger, shippingOptionService }: InjectedDependencies, options: SendcloudOptions) {
     super()
 
     this.logger_ = logger
     this.options_ = options
     this.client_ = new SendcloudClient(options)
+    this.shippingOptions_ = shippingOptionService
   }
 
   /**
@@ -90,31 +106,33 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
   }
 
   /**
-   * Valide les données portées par la méthode de livraison choisie au panier.
+   * Valide — et complète — les données de la méthode de livraison choisie au panier.
    *
-   * Le seul contrôle qui compte ici : une livraison en point relais sans point choisi
-   * produirait une étiquette sans destination. Mieux vaut refuser au panier qu'échouer
-   * à l'affranchissement, une fois le client débité.
+   * Ce qu'on rend ici devient le `data` de la méthode, et c'est ce `data`, pas celui de
+   * l'option, que Medusa transmet au provider à l'expédition. Le code de service y est
+   * donc recopié : sans lui, l'affranchissement ne saurait pas quoi annoncer.
+   *
+   * Le seul contrôle : une livraison en point relais sans point choisi produirait une
+   * étiquette sans destination. Mieux vaut refuser au panier qu'échouer à
+   * l'affranchissement, une fois le client débité.
    */
   async validateFulfillmentData(
     optionData: Record<string, unknown>,
     data: Record<string, unknown>,
     _context: ValidateFulfillmentDataContext
   ): Promise<Record<string, unknown>> {
-    if (!optionData?.is_service_point_required) {
-      return data
-    }
-
-    const servicePointId = data?.service_point_id
-
-    if (!servicePointId) {
+    if (optionData?.is_service_point_required && !data?.service_point_id) {
       throw new MedusaError(
         MedusaError.Types.INVALID_DATA,
         "Cette livraison se fait en point relais : aucun point n'a été sélectionné."
       )
     }
 
-    return data
+    return {
+      ...data,
+      shipping_option_code: optionData?.shipping_option_code,
+      carrier_code: optionData?.carrier_code,
+    }
   }
 
   async validateOption(data: Record<string, unknown>): Promise<boolean> {
@@ -202,16 +220,9 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
     data: Record<string, unknown>,
     items: Partial<Omit<FulfillmentItemDTO, "fulfillment">>[],
     order: Partial<FulfillmentOrderDTO> | undefined,
-    _fulfillment: Partial<Omit<FulfillmentDTO, "provider_id" | "data" | "items">>
+    fulfillment: Partial<Omit<FulfillmentDTO, "provider_id" | "data" | "items">>
   ): Promise<CreateFulfillmentResult> {
-    const code = (data as { shipping_option_code?: string })?.shipping_option_code
-
-    if (!code) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        "Impossible d'affranchir : la méthode de livraison ne porte pas de code Sendcloud."
-      )
-    }
+    const code = await this.shippingOptionCode(data, fulfillment)
 
     const destinataire = toSendcloudAddress(order)
 
@@ -222,8 +233,9 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
       )
     }
 
-    const reponse = await this.client_.announceShipment({
+    const expedition = await this.client_.announceShipment({
       label_details: { mime_type: "application/pdf" },
+      from_address: { sender_address_id: await this.senderAddressId() },
       to_address: destinataire,
       to_service_point: (data as { service_point_id?: number })?.service_point_id
         ? { id: Number((data as { service_point_id: number }).service_point_id) }
@@ -240,17 +252,26 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
       ],
     })
 
+    const labels = labelsPourMedusa(expedition, this.options_.backendUrl)
+
     this.logger_.info(
-      `Sendcloud : expédition créée pour la commande ${(order as { display_id?: number })?.display_id ?? "?"}.`
+      `Sendcloud : expédition ${expedition.id} créée pour la commande ${(order as { display_id?: number })?.display_id ?? "?"}` +
+        (labels.length ? `, suivi ${labels.map((l) => l.tracking_number || "?").join(", ")}.` : ".")
     )
 
+    if (!this.options_.backendUrl) {
+      this.logger_.warn(
+        "Sendcloud : MEDUSA_BACKEND_URL n'est pas défini, le lien d'étiquette rendu à Medusa ne s'ouvrira pas depuis l'admin."
+      )
+    }
+
     // `fulfillment` n'expose pas `data` — Medusa l'exclut de la signature. On repart donc
-    // des donnees de la methode de livraison, en y joignant la reponse de Sendcloud : le
+    // des donnees de la methode de livraison, en y joignant l'expedition Sendcloud : le
     // code d'option et le point relais restent ainsi attaches au fulfillment, et
     // l'annulation y retrouve l'identifiant de l'expedition.
     return {
-      data: { ...data, sendcloud: reponse },
-      labels: extractLabels(reponse),
+      data: { ...data, sendcloud: sansFichiers(expedition) },
+      labels,
     }
   }
 
@@ -265,6 +286,77 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
     await this.client_.cancelShipment(shipmentId)
 
     return {}
+  }
+
+  /**
+   * Code du service Sendcloud à annoncer pour une expédition.
+   *
+   * Il est sur la méthode de livraison quand elle vient du tunnel de commande —
+   * `validateFulfillmentData` l'y recopie. Il n'y est pas quand la méthode a été posée
+   * sans passer par le provider : commande provisoire créée dans l'administration,
+   * commande antérieure à Sendcloud, ou option choisie au moment d'expédier qui n'est pas
+   * celle de la commande. On le relit alors sur l'option elle-même, que le module de
+   * fulfillment sait retrouver depuis l'expédition en cours.
+   */
+  private async shippingOptionCode(
+    data: Record<string, unknown>,
+    fulfillment: Partial<Omit<FulfillmentDTO, "provider_id" | "data" | "items">>
+  ): Promise<string> {
+    const surLaMethode = (data as { shipping_option_code?: string })?.shipping_option_code
+
+    if (surLaMethode) {
+      return surLaMethode
+    }
+
+    const optionId = (fulfillment as { shipping_option_id?: string | null })?.shipping_option_id
+
+    if (optionId && this.shippingOptions_) {
+      const option = await this.shippingOptions_.retrieve(optionId, { select: ["id", "data"] })
+      const surLOption = (option.data as { shipping_option_code?: string } | null)?.shipping_option_code
+
+      if (surLOption) {
+        return surLOption
+      }
+    }
+
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      "Impossible d'affranchir : ni la méthode de livraison ni son option ne portent de code de service Sendcloud."
+    )
+  }
+
+  /**
+   * Adresse d'expédition à déclarer à l'annonce.
+   *
+   * L'API v3 exige `from_address` — elle n'applique pas l'adresse « par défaut » du panel,
+   * et ne dit pas laquelle c'est. Configurée, la variable tranche ; sinon on lit les
+   * adresses du compte et on prend la seule qu'il y a. Plusieurs adresses sans
+   * configuration, c'est un choix qu'on refuse de faire à la place du marchand.
+   */
+  private async senderAddressId(): Promise<number> {
+    if (this.options_.senderAddressId) {
+      return this.options_.senderAddressId
+    }
+
+    const adresses = await this.client_.listSenderAddresses()
+
+    if (adresses.length === 1) {
+      return adresses[0].id
+    }
+
+    if (adresses.length === 0) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        "Aucune adresse d'expédition dans le compte Sendcloud : en créer une dans Réglages → Adresses."
+      )
+    }
+
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Le compte Sendcloud a ${adresses.length} adresses d'expédition : désigner celle à utiliser dans SENDCLOUD_SENDER_ADDRESS_ID (${adresses
+        .map((a) => `${a.id} = ${a.company_name || a.name}, ${a.city}`)
+        .join(" ; ")}).`
+    )
   }
 
   /** Le panier atteint-il le montant qui offre la livraison ? */
@@ -436,26 +528,4 @@ function toSendcloudAddress(order: Partial<FulfillmentOrderDTO> | undefined): Se
     phone_number: source.phone ?? undefined,
     email: (order as unknown as CartLikeContext)?.email ?? undefined,
   }
-}
-
-/**
- * Ramène les colis de la réponse Sendcloud à la forme attendue par Medusa.
- *
- * Une expédition peut porter plusieurs colis ; chacun a son numéro de suivi et son
- * étiquette, et Medusa en fait autant de `FulfillmentLabel`.
- */
-function extractLabels(reponse: Record<string, unknown>): CreateFulfillmentResult["labels"] {
-  const donnees = (reponse?.data ?? reponse) as {
-    parcels?: {
-      tracking_number?: string
-      tracking_url?: string
-      label?: { normal_printer?: string[]; label_url?: string }
-    }[]
-  }
-
-  return (donnees?.parcels ?? []).map((colis) => ({
-    tracking_number: colis?.tracking_number ?? "",
-    tracking_url: colis?.tracking_url ?? "",
-    label_url: colis?.label?.label_url ?? colis?.label?.normal_printer?.[0] ?? "",
-  }))
 }

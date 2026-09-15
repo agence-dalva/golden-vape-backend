@@ -20,8 +20,23 @@ export type SendcloudOptions = {
    * Basic y échoue. Le jeton vit une heure et se met en cache.
    */
   useOAuth: boolean
-  /** Adresse d'expédition. Absente, Sendcloud reprend celle par défaut du compte. */
+  /**
+   * Adresse d'expédition, par son identifiant chez Sendcloud.
+   *
+   * L'API v3 exige `from_address` à l'annonce et n'applique pas l'adresse « par défaut »
+   * du panel. Non configurée, le provider prend la seule adresse du compte ; il n'en
+   * faut qu'une de plus pour que la variable devienne obligatoire.
+   */
   senderAddressId?: number
+  /**
+   * URL publique de ce backend, base des liens d'étiquette rendus à Medusa.
+   *
+   * Sendcloud ne livre l'étiquette que derrière l'authentification API : son lien ne
+   * s'ouvre pas depuis un navigateur. Le provider rend donc un lien vers une route
+   * d'administration de ce backend, qui va la chercher avec les clés et la sert au
+   * marchand connecté.
+   */
+  backendUrl?: string
   /** Pays de départ, qui sert aussi de référence pour énumérer les options. */
   defaultCountryCode?: string
   /**
@@ -96,15 +111,52 @@ export type SendcloudServicePointRef = {
   post_number?: string
 }
 
+/** Adresse d'expédition : préenregistrée chez Sendcloud, ou donnée en entier. */
+export type SendcloudFromAddress = { sender_address_id: number } | SendcloudAddress
+
+/** Adresse d'expédition enregistrée dans le compte (Réglages → Adresses du panel). */
+export type SendcloudSenderAddress = SendcloudAddress & {
+  id: number
+  address_line_2?: string | null
+  po_box?: string | null
+}
+
 export type AnnounceShipmentRequest = {
   label_details?: { mime_type: string; dpi?: number }
   to_address: SendcloudAddress
-  from_address?: SendcloudAddress
+  from_address: SendcloudFromAddress
   to_service_point?: SendcloudServicePointRef
   ship_with: SendcloudShipWith
   order_number?: string
   total_order_price?: { currency: string; value: string }
   parcels: SendcloudParcel[]
+}
+
+/** Document attaché à un colis. Le lien exige l'authentification API. */
+export type SendcloudParcelDocument = {
+  type: "label" | "cn23" | "cp71" | "commercial-invoice" | "cn23-default" | "air-waybill" | "qr"
+  document_type?: "label" | "customs-declaration" | "air-waybill"
+  size?: "a6" | "a4"
+  link: string
+}
+
+/** Colis tel que l'annonce synchrone le rend, une fois le transporteur passé. */
+export type SendcloudAnnouncedParcel = {
+  id: number
+  tracking_number?: string | null
+  tracking_url?: string | null
+  status?: { code?: string; message?: string }
+  documents?: SendcloudParcelDocument[]
+  /** PDF en base64 — présent seulement quand l'expédition n'a qu'un colis. */
+  label_file?: string | null
+}
+
+/** Corps de `data` dans la réponse de `POST /shipments/announce`. */
+export type SendcloudShipment = {
+  id: string
+  order_number?: string | null
+  parcels?: SendcloudAnnouncedParcel[]
+  [key: string]: unknown
 }
 
 export type SendcloudShippingOption = {
