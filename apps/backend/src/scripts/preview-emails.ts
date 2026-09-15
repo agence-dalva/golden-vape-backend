@@ -10,16 +10,25 @@ import passwordReset from "../subscribers/password-reset"
  *
  * Passe par les subscribers eux-mêmes, avec les vraies données de la base : c'est le
  * circuit complet, sauf le bus d'événements. Sans RESEND_API_KEY, les fichiers HTML
- * arrivent dans `.medusa/emails/` ; avec, les emails partent vraiment — à l'adresse de
- * la commande.
+ * arrivent dans `.medusa/emails/`. Avec une clé, les emails partiraient vraiment — à
+ * l'adresse du client de la commande — : il faut le demander en toutes lettres.
  *
  *   npx medusa exec ./src/scripts/preview-emails.ts commande=10
+ *   npx medusa exec ./src/scripts/preview-emails.ts commande=10 envoyer=oui
  */
 export default async function previewEmails({ container, args }: ExecArgs) {
   const numero = Number((args ?? []).find((a) => a.startsWith("commande="))?.slice("commande=".length))
 
   if (!numero) {
     console.error("❌ Préciser la commande : commande=10")
+    return
+  }
+
+  if (process.env.RESEND_API_KEY && !(args ?? []).includes("envoyer=oui")) {
+    console.error(
+      "❌ Une clé Resend est configurée : ces emails partiraient réellement au client de la commande.\n" +
+        "   Ajouter envoyer=oui pour confirmer, ou retirer RESEND_API_KEY pour un simple aperçu."
+    )
     return
   }
 

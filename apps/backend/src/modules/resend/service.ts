@@ -70,6 +70,13 @@ export default class ResendNotificationProviderService extends AbstractNotificat
     const html = "<!DOCTYPE html>" + renderToStaticMarkup(template.render(data, this.options_.storefrontUrl))
 
     if (!this.client_) {
+      // En production, pas de fichier : il contiendrait nom, adresse et commande du
+      // client sur le disque du serveur. On signale seulement que rien n'est parti.
+      if (process.env.NODE_ENV === "production") {
+        this.logger_.warn(`Resend (sans clé) : « ${subject} » pour ${notification.to} NON envoyé.`)
+        return {}
+      }
+
       const chemin = this.ecrirePourApercu(notification.template, notification.to, subject, html)
       this.logger_.info(`Resend (sans clé) : « ${subject} » pour ${notification.to} → ${chemin}`)
       return {}

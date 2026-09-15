@@ -18,7 +18,7 @@ export function PasswordResetEmail({ data, storefrontUrl }: { data: PasswordRese
       </Paragraph>
       <Button href={data.reset_url}>Choisir un nouveau mot de passe</Button>
       <Paragraph muted>
-        Ce lien est valable une heure. Si vous n'êtes pas à l'origine de cette demande, ignorez
+        Ce lien est valable quinze minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez
         cet email : votre mot de passe reste inchangé.
       </Paragraph>
     </Layout>

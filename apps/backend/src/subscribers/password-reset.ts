@@ -7,7 +7,7 @@ import { resendOptionsFromEnv } from "../modules/resend/lib/options"
   Mot de passe oublié.
 
   Medusa génère un jeton quand le client le demande depuis la boutique, et ne fait rien
-  d'autre : c'est ici que le lien part. Le jeton n'est valable qu'une heure et ne sert
+  d'autre : c'est ici que le lien part. Le jeton n'est valable que quinze minutes et ne sert
   qu'à la route de mise à jour du mot de passe, avec l'email en clair pour la remplir.
 */
 export default async function passwordReset({
