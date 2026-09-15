@@ -1,6 +1,7 @@
 import { loadEnv, defineConfig } from '@medusajs/framework/utils'
 import { moneticoOptionsFromEnv } from './src/modules/monetico/lib/options'
 import { sendcloudOptionsFromEnv } from './src/modules/sendcloud/lib/options'
+import { resendOptionsFromEnv } from './src/modules/resend/lib/options'
 
 loadEnv(process.env.NODE_ENV || 'development', process.cwd())
 
@@ -107,6 +108,29 @@ module.exports = defineConfig({
               region: "auto",
               bucket: process.env.R2_BUCKET,
               endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+            },
+          },
+        ],
+      },
+    },
+    /*
+      Emails transactionnels — confirmation de commande, colis en route, mot de passe.
+
+      Medusa n'envoie rien de lui-meme : il emet des evenements, nos subscribers
+      rassemblent les donnees et demandent l'envoi, ce provider rend le template et le
+      remet a Resend. Sans RESEND_API_KEY, les emails sont rendus dans `.medusa/emails/`
+      au lieu de partir.
+    */
+    {
+      resolve: "@medusajs/notification",
+      options: {
+        providers: [
+          {
+            resolve: "./src/modules/resend",
+            id: "resend",
+            options: {
+              channels: ["email"],
+              ...resendOptionsFromEnv(),
             },
           },
         ],
