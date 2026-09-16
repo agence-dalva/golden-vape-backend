@@ -19,19 +19,23 @@ import { writeFileSync } from "node:fs"
   — matériel : un forfait par catégorie. La contenance n'y est jamais lue — le « 4ml » d'une
     cartouche est la capacité du réservoir, pas un liquide.
 
-  Deux déductions, signalées dans le rapport :
+  Quelques déductions, toutes signalées « DEDUIT » dans le rapport :
   — un titre à plusieurs contenances (« Arctic Mango 10ml / 50ml ») vaut pour la plus petite
     quand la variante ne précise rien. Dans le catalogue, le grand format est toujours écrit
     dans la variante (« 0mg 50ml ») et les variantes muettes (« 3mg », « 6mg ») sont le petit —
     vérifié sur les 53 produits concernés ;
-  — un booster sans contenance lisible fait 10 ml : c'est son format légal.
+  — sans contenance lisible, un booster fait 10 ml (son format légal), un liquide 50 ml, un
+    concentré 30 ml, un flacon vide 120 ml — les formats les plus vendus, et jamais les plus
+    légers ;
+  — le CBD vendu au gramme (fleurs, résines) pèse son grammage plus 15 g d'emballage ; un
+    pré-roll 20 g ; le reste du CBD sans grammage 50 g, par prudence.
 
   Un produit rangé dans deux catégories à poids différents prend le plus lourd : un colis
   sous-évalué est repesé en centre de tri puis refacturé, là où une sur-évaluation ne coûte au
   pire qu'une tranche. Le cas reste signalé.
 
-  Rien n'est écrit quand le poids ne peut pas être établi — contenance absente ou hors grille,
-  catégorie inconnue ou sans règle. Ces produits sont listés pour une correction à la main. Le
+  Rien n'est écrit quand le poids ne peut pas être établi — contenance hors grille, catégorie
+  inconnue ou sans règle. Ces produits sont listés pour une correction à la main. Le
   poids du produit lui-même, quand ses variantes ne s'accordent pas, reste tel quel : c'est une
   valeur d'affichage, Sendcloud ne la lit pas.
 
@@ -74,21 +78,44 @@ const GRILLE_LIQUIDE: Grille = {
   250: 335,
 }
 
-/** Une base est plus dense qu'un liquide fini, et vendue en grand format. */
-const GRILLE_BASE: Grille = { 120: 185, 250: 350 }
+/**
+ * Une base est plus dense qu'un liquide fini (glycérine ≈ 1,26), et vendue en grand format. Les
+ * 500 ml et 1 litre prolongent la grille du marchand : le liquide au prorata, plus un flacon.
+ */
+const GRILLE_BASE: Grille = { 120: 185, 250: 350, 500: 680, 1000: 1300 }
 
 /** Un flacon vide ne pèse que son plastique. */
 const GRILLE_FLACON: Grille = { 75: 20, 120: 30, 200: 35, 230: 40, 250: 40 }
 
 type Regle =
-  | { type: "contenance"; libelle: string; grille: Grille; defaut?: number }
+  /** `defaut` : contenance supposée quand aucune n'est lisible, fixe ou selon le titre. */
+  | { type: "contenance"; libelle: string; grille: Grille; defaut?: number | ((titre: string) => number) }
   | { type: "forfait"; libelle: string; grammes: number }
+  /** CBD : un liquide s'il a une contenance, sinon un produit vendu au gramme. */
+  | { type: "cbd"; libelle: string }
 
-const LIQUIDE: Regle = { type: "contenance", libelle: "Liquide", grille: GRILLE_LIQUIDE }
+/**
+ * Sans contenance lisible, un liquide est supposé au format le plus vendu — 50 ml, ou 30 ml pour
+ * un concentré. Sur-estimer un 10 ml coûte une tranche ; le sous-estimer, un repesage facturé.
+ */
+const LIQUIDE: Regle = {
+  type: "contenance",
+  libelle: "Liquide",
+  grille: GRILLE_LIQUIDE,
+  defaut: (titre) => (/concentr|ar[oô]me/i.test(titre) ? 30 : 50),
+}
 const BASE: Regle = { type: "contenance", libelle: "Base", grille: GRILLE_BASE }
-const FLACON: Regle = { type: "contenance", libelle: "Flacon", grille: GRILLE_FLACON }
+/** Un flacon sans contenance est supposé au format médian de la grille. */
+const FLACON: Regle = { type: "contenance", libelle: "Flacon", grille: GRILLE_FLACON, defaut: 120 }
 /** Un booster de nicotine est un 10 ml : c'est le plus grand format que la loi lui permet. */
 const BOOSTER: Regle = { type: "contenance", libelle: "Booster", grille: GRILLE_LIQUIDE, defaut: 10 }
+const CBD: Regle = { type: "cbd", libelle: "CBD" }
+
+/** Emballage d'un produit CBD vendu au gramme : pochon, étiquette, carton. */
+const EMBALLAGE_CBD_GRAMMES = 15
+/** Un pré-roll dans son tube ; et le reste du CBD sans grammage, plus lourd par prudence. */
+const FORFAIT_PRE_ROLL = 20
+const FORFAIT_CBD_SANS_GRAMMAGE = 50
 
 function forfait(libelle: string, grammes: number): Regle {
   return { type: "forfait", libelle, grammes }
@@ -118,7 +145,7 @@ const REGLES_PAR_CATEGORIE: Record<string, Regle> = {
   "sels de nicotine": LIQUIDE,
   fruite: LIQUIDE,
   boissons: LIQUIDE,
-  cbd: LIQUIDE,
+  cbd: CBD,
   aromes: LIQUIDE,
   gourmands: LIQUIDE,
   fruites: LIQUIDE,
@@ -158,10 +185,13 @@ const CATEGORIES_SANS_REGLE = new Set([
 
 /**
  * Une contenance : « 50ml », « 50 ml », « 5.5ml ». Le début interdit d'isoler « 5 » dans
- * « 10.5ml » ; la fin écarte « 30lm » et autres coquilles. « 1litre » n'est pas reconnu, à
- * dessein : aucune grille ne va jusque-là.
+ * « 10.5ml » ; la fin écarte « 30lm » et autres coquilles.
  */
 const CONTENANCE = /(?<![\d.,])(\d+(?:[.,]\d+)?)\s*ml(?!\p{L})/giu
+/** « 1 litre », « 1L », « 0,5 l » — les bases, converties en millilitres. */
+const LITRES = /(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(?:l|litres?)(?!\p{L})/giu
+/** Un grammage : « 7g », « 2.5G », « 10 g » — le CBD vendu au poids. « mg » n'en est pas un. */
+const GRAMMES = /(?<![\d.,])(\d+(?:[.,]\d+)?)\s*g(?!\p{L})/giu
 
 const LOT = 100
 
@@ -201,6 +231,8 @@ type Pesee = {
   regle: string
   detail: string
   motifs: Motif[]
+  /** Poids de repli — contenance supposée, forfait faute de mieux : cède devant toute lecture directe. */
+  repli?: boolean
 }
 
 function replier(valeur: string): string {
@@ -212,10 +244,22 @@ function replier(valeur: string): string {
     .trim()
 }
 
-/** Les contenances distinctes d'un texte, dans l'ordre où elles apparaissent. */
+/** Les contenances distinctes d'un texte, en millilitres, dans l'ordre où elles apparaissent. */
 export function contenances(texte: string): number[] {
-  const valeurs = [...texte.matchAll(CONTENANCE)].map((m) => Number(m[1].replace(",", ".")))
+  const valeurs = [
+    ...[...texte.matchAll(CONTENANCE)].map((m) => Number(m[1].replace(",", "."))),
+    ...[...texte.matchAll(LITRES)].map((m) => Number(m[1].replace(",", ".")) * 1000),
+  ]
   return [...new Set(valeurs)]
+}
+
+/** Le premier grammage lisible parmi les sources, et d'où il vient. */
+export function grammesDe(sources: Source[]): { valeur: number; origine: Origine } | null {
+  for (const source of sources) {
+    const m = [...source.texte.matchAll(GRAMMES)][0]
+    if (m) return { valeur: Number(m[1].replace(",", ".")), origine: source.origine }
+  }
+  return null
 }
 
 type Contenance =
@@ -263,18 +307,53 @@ export function reglesDe(noms: string[]): { regles: Regle[]; inconnues: string[]
   return { regles: [...regles], inconnues, sansRegle }
 }
 
+/**
+ * Le CBD se pèse comme un liquide s'il en est un ; sinon au grammage du titre, emballage compris,
+ * arrondi aux 5 g au-dessus ; sinon au forfait — léger pour un pré-roll, prudent pour le reste.
+ */
+function peserCbd(sources: Source[]): Pesee {
+  if (contenanceDe(sources).valeur !== null) {
+    return peser(LIQUIDE, sources)
+  }
+  const grammage = grammesDe(sources)
+  if (grammage) {
+    const poids = Math.ceil((grammage.valeur + EMBALLAGE_CBD_GRAMMES) / 5) * 5
+    return {
+      poids,
+      regle: "CBD au gramme",
+      detail: `${grammage.valeur} g (${grammage.origine}) + ${EMBALLAGE_CBD_GRAMMES} g d'emballage`,
+      motifs: ["DEDUIT"],
+    }
+  }
+  const preRoll = sources.some((s) => /pr[ée][ -]?rolls?/i.test(s.texte))
+  return {
+    poids: preRoll ? FORFAIT_PRE_ROLL : FORFAIT_CBD_SANS_GRAMMAGE,
+    regle: preRoll ? "CBD pré-roll" : "CBD sans grammage",
+    detail: preRoll ? "pré-roll, forfait" : "ni contenance ni grammage lisibles, forfait prudent",
+    motifs: ["DEDUIT"],
+    repli: true,
+  }
+}
+
 function peser(regle: Regle, sources: Source[]): Pesee {
   if (regle.type === "forfait") {
     return { poids: regle.grammes, regle: regle.libelle, detail: "forfait de la catégorie", motifs: [] }
   }
+  if (regle.type === "cbd") {
+    return peserCbd(sources)
+  }
 
   let contenance = contenanceDe(sources)
+  let repli = false
   if (contenance.valeur === null && regle.defaut !== undefined) {
+    const titre = sources[sources.length - 1]?.texte ?? ""
+    const defaut = typeof regle.defaut === "function" ? regle.defaut(titre) : regle.defaut
     contenance = {
-      valeur: regle.defaut,
+      valeur: defaut,
       origine: "titre du produit",
-      deduite: `${regle.defaut} ml supposés, aucune contenance lisible`,
+      deduite: `${defaut} ml supposés, aucune contenance lisible`,
     }
+    repli = true
   }
   if (contenance.valeur === null) {
     return { poids: null, regle: regle.libelle, detail: "aucune contenance lisible", motifs: ["SANS CONTENANCE"] }
@@ -295,6 +374,7 @@ function peser(regle: Regle, sources: Source[]): Pesee {
     regle: `${regle.libelle} ${contenance.valeur} ml`,
     detail: contenance.deduite ?? `${contenance.valeur} ml, ${contenance.origine}`,
     motifs: contenance.deduite ? ["DEDUIT"] : [],
+    ...(repli ? { repli } : {}),
   }
 }
 
@@ -306,7 +386,10 @@ function peser(regle: Regle, sources: Source[]): Pesee {
  */
 export function decider(regles: Regle[], sources: Source[]): Pesee {
   const pesees = regles.map((regle) => peser(regle, sources))
-  const abouties = pesees.filter((p) => p.poids !== null)
+  const toutes = pesees.filter((p) => p.poids !== null)
+  // Un poids de repli ne se mesure pas à une lecture directe : il ne sert qu'en l'absence de toute autre.
+  const directes = toutes.filter((p) => !p.repli)
+  const abouties = directes.length > 0 ? directes : toutes
 
   if (abouties.length === 0) {
     const motifs = [...new Set(pesees.flatMap((p) => p.motifs))]
@@ -432,11 +515,12 @@ function evaluer(produit: ProduitLu, inconnuesGlobales: Map<string, number>): Li
   })
 
   /*
-    Le produit se pèse sur son propre titre. À défaut, il hérite du poids de ses variantes si
-    elles s'accordent toutes ; sinon il garde sa valeur, et le rapport dit pourquoi.
+    Le produit se pèse sur son propre titre. À défaut — ou si son titre n'a livré qu'un poids de
+    repli — il hérite du poids de ses variantes si elles s'accordent toutes ; sinon il garde sa
+    valeur, et le rapport dit pourquoi.
   */
   let pesee = decider(regles, [titreProduit])
-  if (pesee.poids === null && lignesVariantes.length > 0) {
+  if ((pesee.poids === null || pesee.repli) && lignesVariantes.length > 0) {
     const poidsDesVariantes = new Set(lignesVariantes.map((l) => l.nouveau))
     if (poidsDesVariantes.size === 1 && !poidsDesVariantes.has(null)) {
       const [herite] = poidsDesVariantes
