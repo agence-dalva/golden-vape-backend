@@ -83,10 +83,19 @@ résines CBD en grammes, « Base 1litre »…), contenance hors grille, titres �
 contenances (« 10ml / 50ml »). Un produit rangé dans deux catégories à poids différents prend
 le plus lourd et figure dans la liste « CONFLIT ».
 
-Sur le staging et en production, le script tourne dans le conteneur Railway du backend, sur la
-version compilée : `railway ssh --service <backend>` puis
+Pour viser une autre base depuis un poste, passer `DATABASE_URL` **dans le shell** — et lire la
+ligne « Base : … » en tête du rapport avant d'aller plus loin :
+
+```bash
+DATABASE_URL="$(grep '^DATABASE_URL=' .env.staging | cut -d= -f2-)" \
+  npx medusa exec ./src/scripts/appliquer-poids-catalogue.ts
+```
+
+Un `.env.staging` seul ne suffit pas, même avec `NODE_ENV=staging` : la CLI Medusa charge `.env`
+avant `medusa-config.ts`, et dotenv n'écrase jamais une variable déjà posée — c'est donc
+toujours la base de `.env` qui gagne. Autre voie, dans le conteneur Railway du backend :
+`railway ssh --service <backend>` puis
 `node_modules/.bin/medusa exec ./src/scripts/appliquer-poids-catalogue.js …` depuis `/app`.
-Depuis un poste, `NODE_ENV=staging` fait lire un `.env.staging` (gitignoré) avant `.env`.
 
 ---
 

@@ -493,6 +493,16 @@ function grammes(valeur: number | null): string {
   return valeur === null ? "—" : `${valeur} g`
 }
 
+/** Hôte et nom de la base de DATABASE_URL, sans identifiants. */
+function baseVisee(): string {
+  try {
+    const url = new URL(process.env.DATABASE_URL ?? "")
+    return `${url.hostname}${url.pathname}`
+  } catch {
+    return "DATABASE_URL illisible"
+  }
+}
+
 function champCsv(valeur: string | number | null): string {
   const texte = valeur === null ? "" : String(valeur)
   return /[;"\n]/.test(texte) ? `"${texte.replace(/"/g, '""')}"` : texte
@@ -515,6 +525,14 @@ export default async function appliquerPoidsCatalogue({ container, args }: ExecA
   const limite = Number(options.get("limite")) || 0
   const filtre = replier(options.get("filtre") ?? "")
   const cheminCsv = options.get("csv") || null
+
+  /*
+    La base visée, en clair et en premier : la CLI charge `.env` avant `medusa-config`, si bien
+    qu'un `.env.staging` ne redirige rien — seul un DATABASE_URL passé dans le shell l'emporte.
+    Le voir écrit évite de croire qu'on est ailleurs.
+  */
+  logger.info("")
+  logger.info(`  Base : ${baseVisee()}`)
 
   const lus = await lireCatalogue(query)
   const publies = lus.filter((p) => p.status === "published").length
