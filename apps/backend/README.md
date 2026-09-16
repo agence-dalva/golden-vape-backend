@@ -97,6 +97,39 @@ toujours la base de `.env` qui gagne. Autre voie, dans le conteneur Railway du b
 `railway ssh --service <backend>` puis
 `node_modules/.bin/medusa exec ./src/scripts/appliquer-poids-catalogue.js …` depuis `/app`.
 
+### Stock Hiboutik
+
+La caisse Hiboutik fait foi. Deux mécanismes tiennent le site à jour :
+
+- **Caisse → site** : la tâche planifiée `src/jobs/sync-hiboutik-stock.ts` lit tout le stock de
+  l'entrepôt en un appel, toutes les dix minutes, et n'écrit que les niveaux qui changent. Même
+  travail depuis le bouton « Synchroniser le stock » de la page *Sync Hiboutik* de l'admin, ou en
+  ligne de commande :
+
+  ```bash
+  npx medusa exec ./src/scripts/synchroniser-stock-hiboutik.ts                 # simulation
+  npx medusa exec ./src/scripts/synchroniser-stock-hiboutik.ts csv=/tmp/stock.csv
+  npx medusa exec ./src/scripts/synchroniser-stock-hiboutik.ts appliquer
+  ```
+
+  Règle appliquée : `stock Medusa = stock caisse + réservé non expédié`, ce qui garantit
+  `disponible sur le site = stock caisse`, y compris entre une commande et son expédition.
+  Le rapport liste les SKU que la caisse ne connaît pas et les stocks caisse négatifs (ramenés à 0).
+
+- **Site → caisse** : dès qu'un paiement est accepté, `src/subscribers/hiboutik-vente-commande.ts`
+  enregistre une **vente** dans Hiboutik (magasin, paiement et commentaire « Commande web n° … »),
+  clôturée, aux prix TTC payés — pas un déstockage : les synthèses du marchand restent justes. Une
+  annulation crée une vente négative. La référence externe de la vente est l'identifiant de la
+  commande ; le résultat est écrit dans `order.metadata.hiboutik`. Une commande dont la vente a
+  échoué apparaît dans le rapport de stock, avec un bouton « Reporter en caisse ».
+
+Le lien entre les deux systèmes est le **SKU de la variante = code-barres de la déclinaison
+Hiboutik**, posé à la main par le marchand. Une variante sans SKU, ou dont le SKU est inconnu de
+la caisse, est ignorée et comptée. Les produits et variantes ne sont jamais modifiés.
+
+En local, laisser `HIBOUTIK_STOCK_SYNC_ENABLED=false` et `HIBOUTIK_SALES_PUSH_SIMULATION=true` :
+la simulation journalise la vente qui serait créée sans toucher à la caisse du marchand.
+
 ---
 
 ## Déploiement Railway
@@ -190,6 +223,12 @@ curl https://<ton-domaine>.up.railway.app/health
 | `R2_SECRET_ACCESS_KEY` | R2 Secret Key |
 | `R2_BUCKET` | Nom du bucket R2 |
 | `R2_PUBLIC_URL` | URL publique R2 |
+| `HIBOUTIK_ACCOUNT` / `HIBOUTIK_USER` / `HIBOUTIK_API_KEY` | Accès à l'API de la caisse (Paramètres → API dans Hiboutik) |
+| `HIBOUTIK_WAREHOUSE_ID` | Entrepôt synchronisé — `1`, jamais `2` (autre boutique) |
+| `HIBOUTIK_STOCK_SYNC_ENABLED` / `HIBOUTIK_STOCK_SYNC_CRON` | Tâche stock caisse → site (`*/10 * * * *` par défaut) |
+| `HIBOUTIK_SALES_PUSH_ENABLED` / `HIBOUTIK_SALES_PUSH_SIMULATION` | Commande web → vente en caisse ; en simulation, journalisée sans appel |
+| `HIBOUTIK_STORE_ID` / `HIBOUTIK_PAYMENT_TYPE` | Point de vente (`1`) et règlement (`CB`) des ventes web |
+| `HIBOUTIK_CUSTOMER_ID` / `HIBOUTIK_VENDOR_ID` | Client et vendeur Hiboutik rattachés aux ventes web (optionnels) |
 
 ---
 

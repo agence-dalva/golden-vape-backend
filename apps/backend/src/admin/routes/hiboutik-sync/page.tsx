@@ -1,5 +1,6 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { useState } from "react"
+import { HiboutikStockCard } from "../../components/hiboutik-stock-card"
 
 type HiboutikProduct = {
   product_id: number
@@ -99,8 +100,10 @@ const HiboutikSyncPage = () => {
   }
 
   return (
+    <>
+    <HiboutikStockCard />
     <div className="bg-ui-bg-base shadow-elevation-card-rest rounded-xl p-6 m-6">
-      <h1 className="text-ui-fg-base font-semibold text-lg mb-2">Synchronisation Hiboutik</h1>
+      <h1 className="text-ui-fg-base font-semibold text-lg mb-2">Produits manquants</h1>
       <p className="text-ui-fg-subtle text-sm mb-4">
         Compare les produits de l'inventaire Hiboutik aux produits Medusa existants (par nom) et permet
         d'ajouter ceux qui manquent. Aucun produit existant n'est modifié ou supprimé.
@@ -229,6 +232,7 @@ const HiboutikSyncPage = () => {
         </table>
       )}
     </div>
+    </>
   )
 }
 
