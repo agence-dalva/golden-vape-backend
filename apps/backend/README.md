@@ -51,6 +51,43 @@ cd apps/backend
 ../../node_modules/.bin/medusa exec src/scripts/upload-images.ts
 ```
 
+### Poids du catalogue
+
+Sendcloud affranchit à partir de `variant.weight` : sans poids, le colis part au repli
+`SENDCLOUD_FALLBACK_WEIGHT_GRAMS` ou l'affranchissement échoue. Le script
+`src/scripts/appliquer-poids-catalogue.ts` pose sur chaque produit et chaque variante le poids
+de la grille du marchand, à partir de la **catégorie** puis, pour les liquides, de la
+**contenance** (option de la variante, puis son titre, puis le titre du produit). La grille
+vit en tête du script ; le taux de nicotine ou de CBD n'entre jamais en compte.
+
+```bash
+cd apps/backend
+
+# Simulation : ancien et nouveau poids, produit par produit, rien d'écrit
+npx medusa exec ./src/scripts/appliquer-poids-catalogue.ts
+npx medusa exec ./src/scripts/appliquer-poids-catalogue.ts csv=/tmp/poids.csv   # tableau complet en CSV
+npx medusa exec ./src/scripts/appliquer-poids-catalogue.ts filtre=grapaya       # un produit précis
+
+# Écriture
+npx medusa exec ./src/scripts/appliquer-poids-catalogue.ts appliquer limite=5
+npx medusa exec ./src/scripts/appliquer-poids-catalogue.ts appliquer
+```
+
+Arguments sans tirets (`medusa exec` garde pour lui les `--`). `conserver` laisse en place les
+poids déjà renseignés ; par défaut tout est recalculé. Le script est idempotent : à relancer
+après une synchronisation Hiboutik.
+
+Le rapport liste ce qui n'est **pas** écrit, à corriger à la main dans l'admin : produits sans
+catégorie ou de catégorie inconnue de la grille, liquides sans contenance lisible (fleurs et
+résines CBD en grammes, « Base 1litre »…), contenance hors grille, titres à plusieurs
+contenances (« 10ml / 50ml »). Un produit rangé dans deux catégories à poids différents prend
+le plus lourd et figure dans la liste « CONFLIT ».
+
+Sur le staging et en production, le script tourne dans le conteneur Railway du backend, sur la
+version compilée : `railway ssh --service <backend>` puis
+`node_modules/.bin/medusa exec ./src/scripts/appliquer-poids-catalogue.js …` depuis `/app`.
+Depuis un poste, `NODE_ENV=staging` fait lire un `.env.staging` (gitignoré) avant `.env`.
+
 ---
 
 ## Déploiement Railway
