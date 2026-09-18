@@ -50,6 +50,45 @@ module.exports = defineConfig({
             resolve: "@medusajs/medusa/cache-redis",
             options: { redisUrl: process.env.REDIS_URL },
           },
+          /*
+            Bus d'événements, moteur de workflows et verrous sur Redis eux aussi.
+
+            Par défaut, les trois vivent dans la mémoire du processus. Un événement
+            `order.placed` émis juste avant un redéploiement Railway disparaît alors avec le
+            conteneur — et avec lui l'email de confirmation et la vente en caisse de cette
+            commande ; un workflow interrompu ne reprend jamais. Sur Redis, les événements et
+            les étapes en attente survivent au redémarrage et sont rejoués.
+
+            C'est aussi ce qui permettra une seconde réplique : sans bus ni verrous partagés,
+            chaque instance traiterait ses propres événements et lancerait ses propres tâches
+            planifiées — la synchro Hiboutik tournerait deux fois.
+
+            Le moteur de workflows repose sur BullMQ, qui exige un Redis en
+            `maxmemory-policy noeviction` : une clé évincée est un workflow perdu.
+          */
+          {
+            resolve: "@medusajs/medusa/event-bus-redis",
+            options: { redisUrl: process.env.REDIS_URL },
+          },
+          {
+            resolve: "@medusajs/medusa/workflow-engine-redis",
+            // Seul module à lire son URL sous une clé `redis` — son chargeur n'a pas suivi
+            // l'harmonisation des autres.
+            options: { redis: { redisUrl: process.env.REDIS_URL } },
+          },
+          {
+            resolve: "@medusajs/medusa/locking",
+            options: {
+              providers: [
+                {
+                  resolve: "@medusajs/medusa/locking-redis",
+                  id: "locking-redis",
+                  is_default: true,
+                  options: { redisUrl: process.env.REDIS_URL },
+                },
+              ],
+            },
+          },
         ]
       : []),
     {
