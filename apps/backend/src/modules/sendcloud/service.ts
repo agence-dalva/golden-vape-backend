@@ -168,6 +168,14 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
     const cart = context as unknown as CartLikeContext
     const destination = cart?.shipping_address
 
+    // Medusa recalcule le prix de la méthode déjà posée à chaque modification du panier,
+    // y compris quand le client en retire le dernier article. Il n'y a alors rien à
+    // expédier : interroger Sendcloud sur un colis de 0 g lui fait répondre 400, et
+    // cette erreur bloquerait le retrait lui-même.
+    if (!cart?.items?.length) {
+      return { calculated_amount: 0, is_calculated_price_tax_inclusive: false }
+    }
+
     // Le tunnel propose les modes de livraison avant de demander l'adresse : sans elle, on
     // annonce le tarif du pays de depart, qui est celui de la quasi-totalite des paniers.
     // Le prix est recalcule des que l'adresse est connue, et c'est celui-la qui engage.
