@@ -2,8 +2,11 @@ import { defineMiddlewares, shouldCompressResponse, validateAndTransformBody } f
 import compression from "compression"
 import multer from "multer"
 import { CreerAlerteStock } from "./store/alertes-stock/validators"
+import { OrdreBanniere } from "./admin/banniere/validators"
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
+// Une photo de bannière plein écran pèse plus qu'un logo : 10 Mo.
+const uploadBanniere = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
 export default defineMiddlewares({
   routes: [
@@ -27,6 +30,16 @@ export default defineMiddlewares({
       matcher: "/admin/attribute-types/:id/values/:value/image",
       method: ["POST"],
       middlewares: [upload.single("file")],
+    },
+    {
+      matcher: "/admin/banniere",
+      method: ["POST"],
+      middlewares: [uploadBanniere.single("file")],
+    },
+    {
+      matcher: "/admin/banniere/ordre",
+      method: ["POST"],
+      middlewares: [validateAndTransformBody(OrdreBanniere)],
     },
     {
       // L'adresse est validée ici, avant la route : une saisie invalide ne crée jamais de demande.

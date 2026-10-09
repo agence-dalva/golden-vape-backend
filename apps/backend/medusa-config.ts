@@ -99,6 +99,10 @@ module.exports = defineConfig({
       resolve: "./src/modules/alerte-stock",
     },
     {
+      // Images de la bannière d'accueil, gérées depuis l'administration.
+      resolve: "./src/modules/banniere",
+    },
+    {
       resolve: "@medusajs/payment",
       options: {
         providers: [
