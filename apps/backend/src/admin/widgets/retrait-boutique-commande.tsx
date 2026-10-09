@@ -31,7 +31,7 @@ const ETAPES: Record<Statut, { libelle: string; couleur: "orange" | "blue" | "gr
     libelle: "À préparer",
     couleur: "orange",
     suite:
-      "Préparez la commande puis cliquez sur « Expédier des articles » : rien n'est envoyé, elle passe « En attente de retrait ».",
+      "Préparez la commande puis cliquez sur « Expédier des articles » pour notifier le client que la commande est prête.",
   },
   pret: {
     libelle: "Prête, en attente du client",
@@ -91,7 +91,7 @@ const RetraitBoutiqueCommande = ({ data: order }: DetailWidgetProps<AdminOrder>)
             .filter(Boolean)
             .join(", ")}
         </span>
-        . Aucune expédition, aucune étiquette Sendcloud.
+        .
       </Text>
 
       <Text size="small" className="text-ui-fg-base">
