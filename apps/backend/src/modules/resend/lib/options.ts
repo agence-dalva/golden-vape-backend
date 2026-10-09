@@ -7,12 +7,32 @@ export function resendOptionsFromEnv(): ResendOptions {
     from: process.env.EMAIL_FROM || "Golden Vape <onboarding@resend.dev>",
     replyTo: process.env.EMAIL_REPLY_TO || undefined,
     storefrontUrl: storefrontUrlFromEnv(),
-    // Les deux ou rien : un jeton sans boîte ne saurait pas où déposer.
+    // Les deux ou rien : un jeton sans boîte ne saurait pas où déposer. Et seulement sur un
+    // poste de développement — voir `mailtrapAutorise`.
     mailtrap:
-      process.env.MAILTRAP_API_TOKEN && process.env.MAILTRAP_INBOX_ID
-        ? { token: process.env.MAILTRAP_API_TOKEN, inboxId: process.env.MAILTRAP_INBOX_ID }
+      mailtrapDemande() && mailtrapAutorise()
+        ? { token: process.env.MAILTRAP_API_TOKEN!, inboxId: process.env.MAILTRAP_INBOX_ID! }
         : undefined,
   }
+}
+
+export function mailtrapDemande(): boolean {
+  return Boolean(process.env.MAILTRAP_API_TOKEN && process.env.MAILTRAP_INBOX_ID)
+}
+
+/**
+ * La boîte de test n'est permise qu'en développement, sur un poste.
+ *
+ * `NODE_ENV` ne suffit pas : Medusa ne le met à « production » que pour `medusa start`, et à
+ * « development » pour toutes les autres commandes — y compris un `medusa exec` lancé depuis
+ * le shell du conteneur Railway, qui tourne contre la vraie base. Railway pose
+ * `RAILWAY_ENVIRONMENT_NAME` sur ses machines : sa présence suffit à refuser, staging comme
+ * production.
+ */
+export function mailtrapAutorise(): boolean {
+  const developpement = (process.env.NODE_ENV ?? "development") === "development"
+  const surRailway = Boolean(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT)
+  return developpement && !surRailway
 }
 
 /**

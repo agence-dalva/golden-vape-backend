@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { Resend } from "resend"
 import { TEMPLATES, type TemplateName } from "./emails"
 import type { ResendOptions } from "./types"
+import { mailtrapDemande } from "./lib/options"
 
 type InjectedDependencies = { logger: Logger }
 
@@ -43,10 +44,13 @@ export default class ResendNotificationProviderService extends AbstractNotificat
     this.client_ = options.apiKey ? new Resend(options.apiKey) : null
 
     if (options.mailtrap) {
-      // Une boîte de test en production, c'est des clients qui ne reçoivent plus rien.
-      const niveau = process.env.NODE_ENV === "production" ? "error" : "info"
-      logger[niveau](`Emails : boîte de test Mailtrap active (${options.mailtrap.inboxId}), aucun email ne part chez les clients.`)
-    } else if (!this.client_) {
+      logger.info(`Emails : boîte de test Mailtrap active (${options.mailtrap.inboxId}), aucun email ne part chez les clients.`)
+    } else if (mailtrapDemande()) {
+      // Variables présentes hors développement : on les ignore, et on le dit.
+      logger.warn("Emails : MAILTRAP_* ignorées hors développement — les emails suivent le circuit normal.")
+    }
+
+    if (!options.mailtrap && !this.client_) {
       logger.warn("Resend : pas de clé API, les emails seront rendus et journalisés sans être envoyés.")
     }
   }
