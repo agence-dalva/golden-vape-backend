@@ -1,6 +1,7 @@
-import { defineMiddlewares, shouldCompressResponse } from "@medusajs/framework/http"
+import { defineMiddlewares, shouldCompressResponse, validateAndTransformBody } from "@medusajs/framework/http"
 import compression from "compression"
 import multer from "multer"
+import { CreerAlerteStock } from "./store/alertes-stock/validators"
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 
@@ -26,6 +27,12 @@ export default defineMiddlewares({
       matcher: "/admin/attribute-types/:id/values/:value/image",
       method: ["POST"],
       middlewares: [upload.single("file")],
+    },
+    {
+      // L'adresse est validée ici, avant la route : une saisie invalide ne crée jamais de demande.
+      matcher: "/store/alertes-stock",
+      method: ["POST"],
+      middlewares: [validateAndTransformBody(CreerAlerteStock)],
     },
     {
       // Le sceau Monetico se calcule sur le corps brut de la notification.

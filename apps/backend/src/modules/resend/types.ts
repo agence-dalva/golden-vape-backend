@@ -7,4 +7,10 @@ export type ResendOptions = {
   storefrontUrl: string
   /** Adresse de réponse, si différente de l'expéditeur. */
   replyTo?: string
+  /**
+   * Boîte de test Mailtrap. Renseignée, TOUS les emails y partent à la place de Resend :
+   * c'est le réglage pour relire les templates dans une vraie messagerie sans écrire à
+   * personne.
+   */
+  mailtrap?: { token: string; inboxId: string }
 }

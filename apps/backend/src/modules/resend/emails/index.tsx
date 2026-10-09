@@ -1,4 +1,5 @@
 import type { ReactElement } from "react"
+import { BackInStockEmail, backInStockSubject, type BackInStockData } from "./back-in-stock"
 import { OrderCanceledEmail, orderCanceledSubject, type OrderCanceledData } from "./order-canceled"
 import { OrderPlacedEmail, orderPlacedSubject, type OrderPlacedData } from "./order-placed"
 import {
@@ -40,6 +41,12 @@ export const TEMPLATES = {
       <OrderCanceledEmail data={data} storefrontUrl={storefrontUrl} />
     ),
   },
+  "back-in-stock": {
+    subject: (data: BackInStockData) => backInStockSubject(data),
+    render: (data: BackInStockData, storefrontUrl: string): ReactElement => (
+      <BackInStockEmail data={data} storefrontUrl={storefrontUrl} />
+    ),
+  },
   "password-reset": {
     subject: () => passwordResetSubject(),
     render: (data: PasswordResetData, storefrontUrl: string): ReactElement => (
@@ -54,5 +61,6 @@ export type TemplateData = {
   "shipment-created": ShipmentCreatedData
   "order-ready-for-pickup": OrderReadyForPickupData
   "order-canceled": OrderCanceledData
+  "back-in-stock": BackInStockData
   "password-reset": PasswordResetData
 }

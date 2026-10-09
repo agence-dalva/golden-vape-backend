@@ -24,6 +24,9 @@ type InjectedDependencies = { logger: Logger }
  * Sans clé API — en développement, ou tant que le domaine d'envoi n'est pas configuré —
  * rien ne part : l'email est rendu, journalisé, et écrit dans `.medusa/emails/` pour
  * être ouvert dans un navigateur. Le circuit complet se vérifie ainsi sans envoyer.
+ *
+ * Avec une boîte Mailtrap, tout part dans cette boîte de test, Resend ou pas : on relit les
+ * emails dans une vraie messagerie — rendu, liens, aperçu — sans écrire à un client.
  */
 export default class ResendNotificationProviderService extends AbstractNotificationProviderService {
   static identifier = "resend"
@@ -39,7 +42,11 @@ export default class ResendNotificationProviderService extends AbstractNotificat
     this.options_ = options
     this.client_ = options.apiKey ? new Resend(options.apiKey) : null
 
-    if (!this.client_) {
+    if (options.mailtrap) {
+      // Une boîte de test en production, c'est des clients qui ne reçoivent plus rien.
+      const niveau = process.env.NODE_ENV === "production" ? "error" : "info"
+      logger[niveau](`Emails : boîte de test Mailtrap active (${options.mailtrap.inboxId}), aucun email ne part chez les clients.`)
+    } else if (!this.client_) {
       logger.warn("Resend : pas de clé API, les emails seront rendus et journalisés sans être envoyés.")
     }
   }
@@ -68,6 +75,10 @@ export default class ResendNotificationProviderService extends AbstractNotificat
     const data = (notification.data ?? {}) as never
     const subject = template.subject(data)
     const html = "<!DOCTYPE html>" + renderToStaticMarkup(template.render(data, this.options_.storefrontUrl))
+
+    if (this.options_.mailtrap) {
+      return this.envoyerVersMailtrap(this.options_.mailtrap, notification, subject, html)
+    }
 
     if (!this.client_) {
       // En production, pas de fichier : il contiendrait nom, adresse et commande du
@@ -99,6 +110,47 @@ export default class ResendNotificationProviderService extends AbstractNotificat
     this.logger_.info(`Resend : « ${subject} » envoyé à ${notification.to} (${envoye?.id ?? "?"}).`)
 
     return { id: envoye?.id }
+  }
+
+  /**
+   * Dépôt dans la boîte de test Mailtrap (API « Email Testing »).
+   *
+   * Mailtrap veut l'expéditeur en deux champs : « Golden Vape <x@y> » est découpé ici.
+   */
+  private async envoyerVersMailtrap(
+    mailtrap: NonNullable<ResendOptions["mailtrap"]>,
+    notification: ProviderSendNotificationDTO,
+    subject: string,
+    html: string
+  ): Promise<ProviderSendNotificationResultsDTO> {
+    const expediteur = notification.from || this.options_.from
+    const [, nom, adresse] = expediteur.match(/^\s*(.*?)\s*<([^>]+)>\s*$/) ?? [null, "", expediteur]
+
+    const reponse = await fetch(`https://sandbox.api.mailtrap.io/api/send/${mailtrap.inboxId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${mailtrap.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: { email: adresse.trim(), ...(nom ? { name: nom } : {}) },
+        to: [{ email: notification.to }],
+        ...(this.options_.replyTo ? { reply_to: { email: this.options_.replyTo } } : {}),
+        subject,
+        html,
+        category: notification.template,
+      }),
+    })
+
+    const corps = (await reponse.json().catch(() => ({}))) as { message_ids?: string[]; errors?: string[] }
+
+    if (!reponse.ok) {
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        `Mailtrap : ${reponse.status} — ${(corps.errors ?? []).join(", ") || reponse.statusText}`
+      )
+    }
+
+    const id = corps.message_ids?.[0]
+    this.logger_.info(`Mailtrap : « ${subject} » déposé dans la boîte de test pour ${notification.to} (${id ?? "?"}).`)
+    return { id }
   }
 
   private ecrirePourApercu(template: string, to: string, subject: string, html: string): string {

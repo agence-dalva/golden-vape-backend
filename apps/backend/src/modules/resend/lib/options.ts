@@ -7,6 +7,11 @@ export function resendOptionsFromEnv(): ResendOptions {
     from: process.env.EMAIL_FROM || "Golden Vape <onboarding@resend.dev>",
     replyTo: process.env.EMAIL_REPLY_TO || undefined,
     storefrontUrl: storefrontUrlFromEnv(),
+    // Les deux ou rien : un jeton sans boîte ne saurait pas où déposer.
+    mailtrap:
+      process.env.MAILTRAP_API_TOKEN && process.env.MAILTRAP_INBOX_ID
+        ? { token: process.env.MAILTRAP_API_TOKEN, inboxId: process.env.MAILTRAP_INBOX_ID }
+        : undefined,
   }
 }
 

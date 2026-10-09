@@ -68,11 +68,14 @@ const styles = {
 export function Layout({
   preview,
   storefrontUrl,
+  raison = "Vous recevez cet email parce qu'une commande ou un compte est associé à cette adresse.",
   children,
 }: {
   /** Texte d'aperçu, lu par la messagerie avant l'ouverture. */
   preview: string
   storefrontUrl: string
+  /** Pourquoi le destinataire reçoit cet email, en pied de page. */
+  raison?: string
   children: ReactNode
 }) {
   return (
@@ -110,7 +113,7 @@ export function Layout({
                       <td style={styles.footer}>
                         Golden Vape · 18 avenue de la République, 70200 Lure
                         <br />
-                        Vous recevez cet email parce qu'une commande ou un compte est associé à cette adresse.
+                        {raison}
                         <br />
                         <a href={storefrontUrl} style={{ color: BRAND.textMuted }}>
                           {storefrontUrl.replace(/^https?:\/\//, "")}

@@ -95,6 +95,10 @@ module.exports = defineConfig({
       resolve: "./src/modules/product-attribute",
     },
     {
+      // Demandes « prévenez-moi du retour en stock » (voir src/lib/alertes-stock.ts).
+      resolve: "./src/modules/alerte-stock",
+    },
+    {
       resolve: "@medusajs/payment",
       options: {
         providers: [

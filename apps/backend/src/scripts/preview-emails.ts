@@ -5,9 +5,13 @@ import shipmentCreated from "../subscribers/shipment-created"
 import orderReadyForPickup from "../subscribers/order-ready-for-pickup"
 import orderCanceled from "../subscribers/order-canceled"
 import passwordReset from "../subscribers/password-reset"
+import { disponibilites } from "../lib/alertes-stock"
+import { resendOptionsFromEnv } from "../modules/resend/lib/options"
+import { sendEmail } from "../lib/emails"
 
 /**
- * Rend les emails d'une commande réelle, sans attendre les événements.
+ * Rend les emails d'une commande réelle, sans attendre les événements — et l'alerte de retour
+ * en stock sur le premier article de cette commande.
  *
  * Passe par les subscribers eux-mêmes, avec les vraies données de la base : c'est le
  * circuit complet, sauf le bus d'événements. Sans RESEND_API_KEY, les fichiers HTML
@@ -39,7 +43,7 @@ export default async function previewEmails({ container, args }: ExecArgs) {
   } = await query.graph({
     entity: "order",
     filters: { display_id: String(numero) },
-    fields: ["id", "email", "fulfillments.id", "fulfillments.canceled_at", "fulfillments.created_at"],
+    fields: ["id", "email", "items.variant_id", "fulfillments.id", "fulfillments.canceled_at", "fulfillments.created_at"],
   })
 
   if (!order) {
@@ -73,4 +77,23 @@ export default async function previewEmails({ container, args }: ExecArgs) {
 
   await passwordReset(faux({ entity_id: order.email, actor_type: "customer", token: "jeton-de-demonstration" }))
   console.info("  ✅ mot de passe oublié")
+
+  // Rendu seulement : aucune demande n'est créée ni marquée prévenue.
+  const variantId = order.items?.find((i) => i?.variant_id)?.variant_id
+  const etat = variantId ? (await disponibilites(container, [variantId])).get(variantId) : undefined
+  if (etat) {
+    const boutique = resendOptionsFromEnv().storefrontUrl
+    await sendEmail(container, {
+      to: order.email!,
+      template: "back-in-stock",
+      trigger: "preview",
+      data: {
+        product_title: etat.produit,
+        variant_title: etat.declinaison,
+        product_url: etat.handle ? `${boutique}/products/${etat.handle}` : boutique,
+        image_url: etat.image,
+      },
+    })
+    console.info("  ✅ de retour en stock")
+  }
 }
