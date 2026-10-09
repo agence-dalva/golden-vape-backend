@@ -1,6 +1,11 @@
 import type { ReactElement } from "react"
 import { OrderCanceledEmail, orderCanceledSubject, type OrderCanceledData } from "./order-canceled"
 import { OrderPlacedEmail, orderPlacedSubject, type OrderPlacedData } from "./order-placed"
+import {
+  OrderReadyForPickupEmail,
+  orderReadyForPickupSubject,
+  type OrderReadyForPickupData,
+} from "./order-ready-for-pickup"
 import { PasswordResetEmail, passwordResetSubject, type PasswordResetData } from "./password-reset"
 import { ShipmentCreatedEmail, shipmentCreatedSubject, type ShipmentCreatedData } from "./shipment-created"
 
@@ -23,6 +28,12 @@ export const TEMPLATES = {
       <ShipmentCreatedEmail data={data} storefrontUrl={storefrontUrl} />
     ),
   },
+  "order-ready-for-pickup": {
+    subject: (data: OrderReadyForPickupData) => orderReadyForPickupSubject(data),
+    render: (data: OrderReadyForPickupData, storefrontUrl: string): ReactElement => (
+      <OrderReadyForPickupEmail data={data} storefrontUrl={storefrontUrl} />
+    ),
+  },
   "order-canceled": {
     subject: (data: OrderCanceledData) => orderCanceledSubject(data),
     render: (data: OrderCanceledData, storefrontUrl: string): ReactElement => (
@@ -41,6 +52,7 @@ export type TemplateName = keyof typeof TEMPLATES
 export type TemplateData = {
   "order-placed": OrderPlacedData
   "shipment-created": ShipmentCreatedData
+  "order-ready-for-pickup": OrderReadyForPickupData
   "order-canceled": OrderCanceledData
   "password-reset": PasswordResetData
 }

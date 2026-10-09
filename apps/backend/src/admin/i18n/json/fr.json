@@ -1,0 +1,43 @@
+{
+  "orders": {
+    "fulfillment": {
+      "differentOptionSelected": "L'option de livraison choisie diffère de celle du client.",
+      "disabledItemTooltip": "L'option de livraison choisie ne permet pas de traiter cet article",
+      "markAsPickedUp": "Marquer comme retirée",
+      "error": {
+        "wrongQuantity_one": "Un seul article peut être traité",
+        "noShippingOption": "L'option de livraison est requise",
+        "noLocation": "L'emplacement est requis"
+      },
+      "status": {
+        "awaitingPickup": "En attente de retrait",
+        "awaitingShipping": "En attente d'expédition",
+        "awaitingDelivery": "En attente de livraison"
+      },
+      "toast": {
+        "fulfillmentPickedUp": "Commande marquée comme retirée"
+      }
+    }
+  },
+  "stockLocations": {
+    "pickupOptions": {
+      "edit": { "header": "Modifier l'option de retrait" }
+    },
+    "shippingOptions": {
+      "create": {
+        "pickup": {
+          "header": "Créer une option de retrait pour {{zone}}",
+          "hint": "Une option de retrait définit comment les clients viennent chercher leur commande à cet emplacement.",
+          "label": "Options de retrait",
+          "successToast": "L'option de retrait {{name}} a été créée."
+        }
+      },
+      "fields": {
+        "count": {
+          "pickup_one": "{{count}} option de retrait",
+          "pickup_other": "{{count}} options de retrait"
+        }
+      }
+    }
+  }
+}

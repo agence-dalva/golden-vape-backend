@@ -1,4 +1,5 @@
 import { BRAND, Button, Divider, Facts, Layout, Paragraph, Title, formatDate, formatMoney } from "./layout"
+import { LieuRetrait, type LieuRetraitEmail } from "./order-ready-for-pickup"
 
 export type OrderPlacedData = {
   display_id: number
@@ -21,6 +22,8 @@ export type OrderPlacedData = {
     postal_code?: string | null
     city?: string | null
   } | null
+  /** Lieu de retrait quand le client vient chercher sa commande, null pour une livraison. */
+  retrait: LieuRetraitEmail | null
   /** Suivi dans l'espace client — seulement si la commande est rattachée à un compte. */
   order_url: string | null
 }
@@ -38,8 +41,10 @@ export function OrderPlacedEmail({ data, storefrontUrl }: { data: OrderPlacedDat
     <Layout preview={`Commande n°${data.display_id} confirmée — merci pour votre confiance.`} storefrontUrl={storefrontUrl}>
       <Title>Merci{prenom ? `, ${prenom}` : ""} !</Title>
       <Paragraph>
-        Votre commande <strong>n°{data.display_id}</strong> du {formatDate(data.created_at)} est confirmée.
-        Nous la préparons avec soin ; vous recevrez un email dès que votre colis sera en route.
+        Votre commande <strong>n°{data.display_id}</strong> du {formatDate(data.created_at)} est confirmée.{" "}
+        {data.retrait
+          ? "Nous la préparons avec soin ; vous recevrez un email dès qu'elle sera prête à retirer en boutique."
+          : "Nous la préparons avec soin ; vous recevrez un email dès que votre colis sera en route."}
       </Paragraph>
 
       <Divider />
@@ -75,10 +80,14 @@ export function OrderPlacedEmail({ data, storefrontUrl }: { data: OrderPlacedDat
           )}
           <tr>
             <td style={{ padding: "4px 0", fontSize: 14, color: BRAND.textSoft }}>
-              Livraison{data.shipping_method ? ` · ${data.shipping_method}` : ""}
+              {data.retrait ? "Retrait en boutique" : `Livraison${data.shipping_method ? ` · ${data.shipping_method}` : ""}`}
             </td>
             <td align="right" style={{ padding: "4px 0", fontSize: 14, color: BRAND.textSoft }}>
-              {data.shipping_total === 0 ? "Offerte" : formatMoney(data.shipping_total, devise)}
+              {data.shipping_total === 0
+                ? data.retrait
+                  ? "Gratuit"
+                  : "Offerte"
+                : formatMoney(data.shipping_total, devise)}
             </td>
           </tr>
           <tr>
@@ -98,12 +107,13 @@ export function OrderPlacedEmail({ data, storefrontUrl }: { data: OrderPlacedDat
 
       <Facts
         rows={[
-          ...(data.shipping_method ? [{ label: "Mode de livraison", value: data.shipping_method }] : []),
+          ...(data.retrait ? [{ label: "Lieu de retrait", value: <LieuRetrait lieu={data.retrait} /> }] : []),
+          ...(data.shipping_method && !data.retrait ? [{ label: "Mode de livraison", value: data.shipping_method }] : []),
           ...(data.service_point_name ? [{ label: "Point relais", value: data.service_point_name }] : []),
           ...(adresse
             ? [
                 {
-                  label: data.service_point_name ? "Vos coordonnées" : "Adresse de livraison",
+                  label: data.service_point_name || data.retrait ? "Vos coordonnées" : "Adresse de livraison",
                   value: (
                     <>
                       {[adresse.first_name, adresse.last_name].filter(Boolean).join(" ")}

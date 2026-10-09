@@ -2,6 +2,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import type { ExecArgs } from "@medusajs/framework/types"
 import orderPlaced from "../subscribers/order-placed"
 import shipmentCreated from "../subscribers/shipment-created"
+import orderReadyForPickup from "../subscribers/order-ready-for-pickup"
 import orderCanceled from "../subscribers/order-canceled"
 import passwordReset from "../subscribers/password-reset"
 
@@ -62,6 +63,10 @@ export default async function previewEmails({ container, args }: ExecArgs) {
   } else {
     console.info("  – colis en route : aucune expédition active sur cette commande")
   }
+
+  // Ne rend rien pour une commande livrée : le subscriber vérifie lui-même le retrait.
+  await orderReadyForPickup(faux({ order_id: order.id, fulfillment_id: "apercu" }))
+  console.info("  ✅ prête à retirer (seulement si la commande est un retrait en boutique)")
 
   await orderCanceled(faux({ id: order.id }))
   console.info("  ✅ commande annulée")

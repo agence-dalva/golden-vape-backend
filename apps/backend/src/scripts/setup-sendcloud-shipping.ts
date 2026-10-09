@@ -125,7 +125,11 @@ export default async function setupSendcloudShipping({ container, args }: ExecAr
     return
   }
 
-  const zones = await fulfillment.listServiceZones({}, { take: 50 })
+  // Seules les zones d'expédition concernent Sendcloud : celle du retrait en boutique vit
+  // dans un ensemble « pickup » et ne doit ni compter ici ni recevoir d'option transporteur.
+  const zones = (
+    await fulfillment.listServiceZones({}, { take: 50, relations: ["fulfillment_set"] })
+  ).filter((z) => z.fulfillment_set?.type !== "pickup")
   const zone = zoneDemandee ? zones.find((z) => z.name === zoneDemandee) : zones[0]
 
   if (!zone) {

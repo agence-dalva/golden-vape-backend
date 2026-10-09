@@ -1,6 +1,7 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys, OrderWorkflowEvents } from "@medusajs/framework/utils"
 import { customerName, orderUrl, sendEmail } from "../lib/emails"
+import { lieuRetrait, optionsRetrait } from "../lib/retrait-boutique"
 
 /*
   Confirmation de commande, au paiement validé.
@@ -51,6 +52,8 @@ export default async function orderPlaced({ event, container }: SubscriberArgs<{
 
   const livraison = order.shipping_methods?.[0]
   const donneesLivraison = (livraison?.data ?? {}) as { service_point_name?: string }
+  // Un retrait en boutique remplace l'adresse de livraison par celle de la boutique.
+  const retrait = lieuRetrait(order.shipping_methods, await optionsRetrait(container))
 
   await sendEmail(container, {
     to: order.email,
@@ -84,6 +87,9 @@ export default async function orderPlaced({ event, container }: SubscriberArgs<{
             postal_code: order.shipping_address.postal_code,
             city: order.shipping_address.city,
           }
+        : null,
+      retrait: retrait
+        ? { nom: retrait.nom, address_1: retrait.address_1, postal_code: retrait.postal_code, city: retrait.city }
         : null,
       order_url: orderUrl(order),
     },
