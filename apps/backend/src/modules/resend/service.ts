@@ -126,18 +126,29 @@ export default class ResendNotificationProviderService extends AbstractNotificat
     const expediteur = notification.from || this.options_.from
     const [, nom, adresse] = expediteur.match(/^\s*(.*?)\s*<([^>]+)>\s*$/) ?? [null, "", expediteur]
 
-    const reponse = await fetch(`https://sandbox.api.mailtrap.io/api/send/${mailtrap.inboxId}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${mailtrap.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: { email: adresse.trim(), ...(nom ? { name: nom } : {}) },
-        to: [{ email: notification.to }],
-        ...(this.options_.replyTo ? { reply_to: { email: this.options_.replyTo } } : {}),
-        subject,
-        html,
-        category: notification.template,
-      }),
+    const corpsRequete = JSON.stringify({
+      from: { email: adresse.trim(), ...(nom ? { name: nom } : {}) },
+      to: [{ email: notification.to }],
+      ...(this.options_.replyTo ? { reply_to: { email: this.options_.replyTo } } : {}),
+      subject,
+      html,
+      category: notification.template,
     })
+
+    // L'offre gratuite de Mailtrap limite le débit (« Too many emails per second ») : une
+    // rafale — l'aperçu des six emails, deux commandes coup sur coup — se fait refuser en
+    // 429. On patiente et on réessaie, quelques fois au plus.
+    let reponse: Response
+    for (let essai = 1; ; essai++) {
+      reponse = await fetch(`https://sandbox.api.mailtrap.io/api/send/${mailtrap.inboxId}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${mailtrap.token}`, "Content-Type": "application/json" },
+        body: corpsRequete,
+      })
+      if (reponse.status !== 429 || essai === 4) break
+      const attente = Number(reponse.headers.get("retry-after")) * 1000 || essai * 1500
+      await new Promise((resolve) => setTimeout(resolve, attente))
+    }
 
     const corps = (await reponse.json().catch(() => ({}))) as { message_ids?: string[]; errors?: string[] }
 
