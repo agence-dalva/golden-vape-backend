@@ -1,5 +1,5 @@
 import { BRAND, Button, Divider, Facts, Layout, Paragraph, Title, formatDate, formatMoney } from "./layout"
-import { LieuRetrait, type LieuRetraitEmail } from "./order-ready-for-pickup"
+import { lignesRetrait, type LieuRetraitEmail } from "./order-ready-for-pickup"
 
 export type OrderPlacedData = {
   display_id: number
@@ -107,7 +107,7 @@ export function OrderPlacedEmail({ data, storefrontUrl }: { data: OrderPlacedDat
 
       <Facts
         rows={[
-          ...(data.retrait ? [{ label: "Lieu de retrait", value: <LieuRetrait lieu={data.retrait} /> }] : []),
+          ...(data.retrait ? lignesRetrait(data.retrait) : []),
           ...(data.shipping_method && !data.retrait ? [{ label: "Mode de livraison", value: data.shipping_method }] : []),
           ...(data.service_point_name ? [{ label: "Point relais", value: data.service_point_name }] : []),
           ...(adresse

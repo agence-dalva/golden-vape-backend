@@ -7,6 +7,7 @@ const boutique: LieuRetrait = {
   postal_code: "70200",
   city: "Lure",
   phone: null,
+  horaires: [],
 }
 
 describe("statutRetrait", () => {

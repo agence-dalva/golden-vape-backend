@@ -15,6 +15,22 @@ export const RETRAIT_BOUTIQUE_CODE = "retrait-boutique"
 export const RETRAIT_BOUTIQUE_NOM = "Retrait en boutique"
 export const RETRAIT_BOUTIQUE_DESCRIPTION = "Gratuit · à venir chercher dès qu'elle est prête"
 
+export type Horaire = { jours: string; heures: string }
+
+/**
+ * Horaires d'ouverture de la boutique de Lure, donnés par le marchand le 14/10/2026.
+ *
+ * Écrits ici et non en base : Medusa n'a pas de champ pour des horaires, et ils changent
+ * rarement. Les emails et le site les lisent tous deux d'ici (via `/store/retrait-boutique`
+ * pour le site) : une modification se fait à ce seul endroit, puis un déploiement.
+ */
+export const HORAIRES_BOUTIQUE: Horaire[] = [
+  { jours: "Lundi", heures: "14h – 19h" },
+  { jours: "Mardi au vendredi", heures: "10h – 12h30 · 14h – 19h" },
+  { jours: "Samedi", heures: "10h – 12h30 · 14h – 18h" },
+  { jours: "Dimanche", heures: "Fermé" },
+]
+
 export type LieuRetrait = {
   nom: string | null
   address_1: string | null
@@ -22,6 +38,7 @@ export type LieuRetrait = {
   postal_code: string | null
   city: string | null
   phone: string | null
+  horaires: Horaire[]
 }
 
 /**
@@ -79,6 +96,7 @@ export async function optionsRetrait(container: MedusaContainer): Promise<Map<st
       postal_code: adresse?.postal_code ?? null,
       city: adresse?.city ?? null,
       phone: adresse?.phone ?? null,
+      horaires: HORAIRES_BOUTIQUE,
     })
   }
 

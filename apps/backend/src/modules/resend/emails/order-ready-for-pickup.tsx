@@ -5,6 +5,7 @@ export type LieuRetraitEmail = {
   address_1: string | null
   postal_code: string | null
   city: string | null
+  horaires?: { jours: string; heures: string }[]
 }
 
 export type OrderReadyForPickupData = {
@@ -35,6 +36,28 @@ export function LieuRetrait({ lieu }: { lieu: LieuRetraitEmail }) {
   )
 }
 
+/** Une ligne par plage de jours : « Mardi au vendredi : 10h – 12h30 · 14h – 19h ». */
+export function HorairesRetrait({ lieu }: { lieu: LieuRetraitEmail }) {
+  return (
+    <>
+      {(lieu.horaires ?? []).map((h, i) => (
+        <span key={h.jours}>
+          {i > 0 && <br />}
+          <span style={{ fontWeight: 400 }}>{h.jours} :</span> {h.heures}
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** Les lignes « Lieu » et « Horaires », communes à la confirmation et à « prête à retirer ». */
+export function lignesRetrait(lieu: LieuRetraitEmail) {
+  return [
+    { label: "Lieu de retrait", value: <LieuRetrait lieu={lieu} /> },
+    ...(lieu.horaires?.length ? [{ label: "Horaires", value: <HorairesRetrait lieu={lieu} /> }] : []),
+  ]
+}
+
 export function OrderReadyForPickupEmail({ data, storefrontUrl }: { data: OrderReadyForPickupData; storefrontUrl: string }) {
   const prenom = data.customer_name?.split(" ")[0]
 
@@ -48,10 +71,14 @@ export function OrderReadyForPickupEmail({ data, storefrontUrl }: { data: OrderR
 
       <Facts
         rows={[
-          { label: "Lieu de retrait", value: <LieuRetrait lieu={data.lieu} /> },
+          ...lignesRetrait(data.lieu),
           { label: "À donner au comptoir", value: `Commande n°${data.display_id}` },
         ]}
       />
+
+      {/* Vente interdite aux mineurs : sur le site, l'âge n'est que déclaré ; au comptoir, le
+          marchand peut le vérifier. Demandé par le marchand le 14/10/2026. */}
+      <Paragraph>Une pièce d&apos;identité pourra vous être demandée lors du retrait.</Paragraph>
 
       {data.order_url && <Button href={data.order_url}>Voir ma commande</Button>}
     </Layout>

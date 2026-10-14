@@ -60,7 +60,13 @@ export default async function orderReadyForPickup({
     data: {
       display_id: Number(order.display_id),
       customer_name: customerName(order.customer, order.shipping_address),
-      lieu: { nom: retrait.nom, address_1: retrait.address_1, postal_code: retrait.postal_code, city: retrait.city },
+      lieu: {
+        nom: retrait.nom,
+        address_1: retrait.address_1,
+        postal_code: retrait.postal_code,
+        city: retrait.city,
+        horaires: retrait.horaires,
+      },
       order_url: orderUrl(order),
     },
   })

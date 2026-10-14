@@ -89,7 +89,13 @@ export default async function orderPlaced({ event, container }: SubscriberArgs<{
           }
         : null,
       retrait: retrait
-        ? { nom: retrait.nom, address_1: retrait.address_1, postal_code: retrait.postal_code, city: retrait.city }
+        ? {
+            nom: retrait.nom,
+            address_1: retrait.address_1,
+            postal_code: retrait.postal_code,
+            city: retrait.city,
+            horaires: retrait.horaires,
+          }
         : null,
       order_url: orderUrl(order),
     },
