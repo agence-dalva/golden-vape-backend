@@ -143,6 +143,18 @@ export function OrderPlacedEmail({ data, storefrontUrl }: { data: OrderPlacedDat
           avec cette adresse pour suivre vos prochaines commandes.
         </Paragraph>
       )}
+
+      {/* La confirmation sur support durable doit donner accès aux CGV et au formulaire de
+          rétractation (annexe 1). Le PDF est servi par le frontend : chemin tenu dans
+          frontend/src/lib/documents-legaux.ts. */}
+      <Paragraph muted>
+        Vos droits, dont le droit de rétractation de 14 jours et son formulaire, sont décrits dans
+        nos{" "}
+        <a href={`${storefrontUrl}/legal/cgv-golden-vape.pdf`} style={{ color: BRAND.textSoft }}>
+          conditions générales de vente
+        </a>
+        .
+      </Paragraph>
     </Layout>
   )
 }
