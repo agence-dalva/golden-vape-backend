@@ -414,14 +414,41 @@ export default class SendcloudFulfillmentProviderService extends AbstractFulfill
     }
   }
 
-  /** Poids total du panier, en grammes. */
+  /**
+   * Poids total du panier, en grammes.
+   *
+   * Une déclinaison sans poids prend celui de sa fiche produit : le marchand ajoute des
+   * déclinaisons sans les peser, alors que la fiche l'est. Sans aucun poids, on refuse de
+   * coter plutôt que d'envoyer 0 g, que Sendcloud rejette en 400 — le client voyait une
+   * erreur 500 sur chaque mode de livraison au lieu d'un message.
+   */
   private cartWeightGrams(cart: CartLikeContext): number {
+    const sansPoids: string[] = []
+
     const total = (cart?.items ?? []).reduce((somme, item) => {
-      const unitaire = item?.variant?.weight
-      return somme + (typeof unitaire === "number" ? unitaire : 0) * (item?.quantity ?? 0)
+      const unitaire = [item?.variant?.weight, item?.product?.weight].find(
+        (poids): poids is number => typeof poids === "number" && poids > 0
+      )
+      if (unitaire === undefined) {
+        sansPoids.push(item?.product_title ?? item?.title ?? "article")
+        return somme
+      }
+      return somme + unitaire * (item?.quantity ?? 0)
     }, 0)
 
-    return total > 0 ? total : this.options_.fallbackParcelWeightGrams ?? 0
+    if (total > 0) {
+      return total
+    }
+
+    const repli = this.options_.fallbackParcelWeightGrams
+    if (repli && repli > 0) {
+      return repli
+    }
+
+    throw new MedusaError(
+      MedusaError.Types.NOT_ALLOWED,
+      `Impossible de calculer les frais de port : poids manquant pour ${sansPoids.join(", ")}.`
+    )
   }
 
   /**
@@ -512,7 +539,11 @@ type CartLikeContext = {
     quantity?: number
     /** Hors taxes : c'est l'unite dans laquelle Medusa transmet les prix de ligne. */
     unit_price?: number | string | null
+    title?: string | null
+    product_title?: string | null
     variant?: { weight?: number | null } | null
+    /** Fourni par Medusa au calcul du port (`items.product.weight`), pas à l'expédition. */
+    product?: { weight?: number | null } | null
   }[]
 }
 

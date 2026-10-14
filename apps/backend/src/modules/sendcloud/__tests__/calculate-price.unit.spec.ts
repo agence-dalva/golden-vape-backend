@@ -70,4 +70,32 @@ describe("calculatePrice", () => {
       })
     )
   })
+
+  it("prend le poids de la fiche produit quand la déclinaison n'en a pas", async () => {
+    const listShippingOptions = jest.fn().mockResolvedValue(offre("5.94"))
+    const service = serviceAvecClient(listShippingOptions)
+
+    await service.calculatePrice(optionData, {}, {
+      items: [
+        { quantity: 1, variant: { weight: null }, product: { weight: 90 } },
+        { quantity: 2, variant: { weight: 40 }, product: { weight: 90 } },
+      ],
+    } as never)
+
+    expect(listShippingOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ parcels: [{ weight: { value: "170", unit: "g" } }] })
+    )
+  })
+
+  it("refuse de coter un panier sans aucun poids au lieu d'envoyer 0 g", async () => {
+    const listShippingOptions = jest.fn()
+    const service = serviceAvecClient(listShippingOptions)
+
+    await expect(
+      service.calculatePrice(optionData, {}, {
+        items: [{ quantity: 1, product_title: "Resistances B MTL", variant: { weight: null } }],
+      } as never)
+    ).rejects.toThrow("poids manquant pour Resistances B MTL")
+    expect(listShippingOptions).not.toHaveBeenCalled()
+  })
 })
