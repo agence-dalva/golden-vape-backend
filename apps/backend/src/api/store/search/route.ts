@@ -275,12 +275,36 @@ async function searchProducts(
   // « glaciale » dans le sous-titre — la correspondance ne désignerait plus rien de précis.
   const allInTitle = words.map(() => "titre LIKE ?").join(" AND ")
   const allInSubtitle = words.map(() => "sous_titre LIKE ?").join(" AND ")
+  const parTexte = `(${allInTitle}) OR (${allInSubtitle}) OR replace(titre, ' ', '') LIKE ? OR replace(sous_titre, ' ', '') LIKE ?`
+  const parTexteParams = [...patterns, ...patterns, collapsedPattern, collapsedPattern]
+
+  /*
+    La marque n'est presque jamais écrite dans le titre : c'est un attribut à part. Sans elle,
+    taper « Eleaf » ne montrait aucun produit Eleaf (68 marques sur 86 dans ce cas, mesuré le
+    15/10/2026), seulement le raccourci vers la page de la marque.
+
+    Comparaison par début de mot, plus stricte que pour le titre : « ice » ne doit pas
+    ramener tout le catalogue d'une marque nommée « Justice ». Les produits trouvés par la
+    seule marque passent après ceux dont le texte correspond.
+  */
+  const motsMarque = words.map(() => `(' ' || marque) LIKE ?`).join(" AND ")
+  const motsMarqueParams = words.map((word) => `% ${word}%`)
 
   // Les marques de vape s'écrivent indifféremment en un ou deux mots — « Geekvape » sur
   // l'emballage, « Geek Vape » dans le catalogue : d'où la comparaison sans espaces.
   const { rows } = await knex.raw(
     `
-    WITH catalogue AS (
+    WITH par_marque AS (
+      SELECT DISTINCT v.product_id
+      FROM (
+        SELECT pav.product_id, ${fold("pav.value")} AS marque
+        FROM product_attribute_value pav
+        JOIN attribute_type t ON t.id = pav.attribute_type_id
+        WHERE t.name = 'Marque' AND t.deleted_at IS NULL AND pav.deleted_at IS NULL
+      ) v
+      WHERE (${motsMarque}) OR replace(v.marque, ' ', '') LIKE ?
+    ),
+    catalogue AS (
       SELECT
         p.id,
         p.title,
@@ -309,16 +333,22 @@ async function searchProducts(
         )
       ) AS image_url
     FROM catalogue
-    WHERE (${allInTitle})
-       OR (${allInSubtitle})
-       OR replace(titre, ' ', '') LIKE ?
-       OR replace(sous_titre, ' ', '') LIKE ?
+    WHERE ${parTexte}
+       OR id IN (SELECT product_id FROM par_marque)
     -- Un mot trouvé dans le titre désigne le produit plus sûrement que le même mot noyé dans
-    -- une liste de mots-clés : ces produits passent devant.
-    ORDER BY CASE WHEN (${allInTitle}) THEN 0 ELSE 1 END, title
+    -- une liste de mots-clés : ces produits passent devant, et ceux trouvés par la seule
+    -- marque ferment la marche.
+    ORDER BY CASE WHEN (${allInTitle}) THEN 0 WHEN ${parTexte} THEN 1 ELSE 2 END, title
     LIMIT ?
     `,
-    [...patterns, ...patterns, collapsedPattern, collapsedPattern, ...patterns, take]
+    [
+      ...motsMarqueParams,
+      `${collapsed}%`,
+      ...parTexteParams,
+      ...patterns,
+      ...parTexteParams,
+      take,
+    ]
   )
 
   const shortlist = rows as SearchProduct[]
