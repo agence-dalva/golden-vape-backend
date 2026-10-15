@@ -5,9 +5,11 @@ import { PRODUCT_ATTRIBUTE_MODULE } from "../modules/product-attribute"
 import type ProductAttributeModuleService from "../modules/product-attribute/service"
 
 /*
-  Retire la marque entre crochets du titre des produits.
+  Retire la marque du titre des produits : les cartes l'affichent déjà au-dessus du titre.
 
   « Abricot Fraise Mangue 50ml [Nektar] » → « Abricot Fraise Mangue 50ml »
+  « Alabama 10 ml - Pulp »                → « Alabama 10 ml »
+  « Blue Granite 10ml Pulp »              → « Blue Granite 10ml »   (marque « Pulp Super Frost »)
 
   Simulation par défaut : rien n'est écrit tant que `appliquer` n'est pas passé. Le rapport de
   simulation montre exactement ce qui changerait, ainsi que trois signaux qui méritent un
@@ -35,6 +37,14 @@ import type ProductAttributeModuleService from "../modules/product-attribute/ser
   — `--garder` protège des contenus précis, comparés sans casse ni accents.
   — L'espace qui précède le crochet part avec lui, et les espaces doubles laissés au milieu
     d'un titre sont refermés. Le titre est ensuite débarrassé de ses espaces de bord.
+
+  La marque en fin de titre, sans crochets, n'est retirée que si c'est la marque enregistrée
+  du produit — jamais d'après une liste de mots :
+  — la marque entière, précédée d'une espace ou d'un tiret : « … - Pulp », « … Innokin » ;
+  — ou son premier mot s'il compte au moins quatre lettres : la gamme « Pulp Super Frost »
+    s'écrit « … Pulp » dans les titres. « Le » de « Le Pod by pulp » est trop court pour être
+    retiré sans risque.
+  — Un titre qui ne garderait aucun mot d'au moins trois lettres n'est jamais touché.
 */
 
 /** Un groupe entre crochets, et l'espace qui le précède. */
@@ -77,6 +87,41 @@ export function retirerMarques(titre: string, gardes: Set<string>): string {
 
   // Les espaces doubles laissés par un retrait en milieu de titre sont refermés.
   return nettoye.replace(/\s{2,}/g, " ").trim()
+}
+
+/** Séparateurs laissés en bout de titre une fois la marque retirée : « Alabama 10 ml - ». */
+const SEPARATEURS = "\\s\\-–—/|,·"
+
+function echapper(valeur: string): string {
+  return valeur.replace(/[.*+?^${}()|[\]\\]/g, (caractere) => `\\${caractere}`)
+}
+
+/**
+ * Titre débarrassé de la marque enregistrée quand il se termine par elle. Rendu inchangé si
+ * rien ne correspond, ou si le retrait ne laisserait aucune lettre.
+ */
+export function retirerMarqueEnFin(titre: string, marque: string | null): string {
+  const nom = marque?.trim()
+  if (!nom) return titre
+
+  const premierMot = nom.split(/\s+/)[0]
+  const candidats = [nom]
+  if (premierMot !== nom && /\p{L}{4,}/u.test(premierMot)) candidats.push(premierMot)
+
+  for (const candidat of candidats) {
+    // Précédée d'un séparateur : « Pulp » ne doit pas être arraché à la fin d'un autre mot.
+    const fin = new RegExp(`(^|[${SEPARATEURS}])${echapper(candidat)}\\s*$`, "iu")
+    const trouve = fin.exec(titre)
+    if (!trouve) continue
+
+    const reste = titre
+      .slice(0, trouve.index)
+      .replace(new RegExp(`[${SEPARATEURS}]+$`, "u"), "")
+      .trim()
+    // Un vrai mot doit rester : « 10ml - Pulp » réduit à « 10ml » ne nommerait plus rien.
+    return /\p{L}{3,}/u.test(reste) ? reste : titre
+  }
+  return titre
 }
 
 export default async function retirerMarquesDesTitres({ container, args }: ExecArgs) {
@@ -136,16 +181,26 @@ export default async function retirerMarquesDesTitres({ container, args }: ExecA
 
   const changements: Changement[] = []
   const videraient: Changement[] = []
+  let parLaFin = 0
 
   for (const produit of produits as { id: string; title: string; status: string }[]) {
-    const apres = retirerMarques(produit.title, gardes)
+    const marqueEnregistree = marqueParProduit.get(produit.id) ?? null
+    const sansCrochets = retirerMarques(produit.title, gardes)
+    const apres = retirerMarqueEnFin(sansCrochets, marqueEnregistree)
     if (apres === produit.title) continue
 
     const retires = [...produit.title.matchAll(CROCHET)]
       .map((m) => m[1].trim())
       .filter((contenu) => !sansLettre(contenu) && !gardes.has(replier(contenu)))
-
-    const marqueEnregistree = marqueParProduit.get(produit.id) ?? null
+    if (apres !== sansCrochets) {
+      parLaFin += 1
+      retires.push(
+        sansCrochets
+          .slice(apres.length)
+          .replace(new RegExp(`^[${SEPARATEURS}]+`, "u"), "")
+          .trim()
+      )
+    }
 
     const changement = { id: produit.id, avant: produit.title, apres, retires, marqueEnregistree }
     // Un titre vide ferait disparaître le produit de toute liste : on ne l'écrit jamais.
@@ -157,6 +212,7 @@ export default async function retirerMarquesDesTitres({ container, args }: ExecA
 
   logger.info("")
   logger.info(`  ${produits.length} produits lus, ${changements.length} à renommer.`)
+  logger.info(`  dont ${parLaFin} par la marque en fin de titre, le reste par les crochets.`)
   if (limite > 0) {
     logger.info(`  --limite=${limite} : ${retenus.length} traité(s) sur les ${changements.length}.`)
   }
@@ -202,7 +258,10 @@ export default async function retirerMarquesDesTitres({ container, args }: ExecA
     (changement) =>
       changement.marqueEnregistree !== null &&
       !changement.retires.some(
-        (contenu) => replier(contenu) === replier(changement.marqueEnregistree!)
+        (contenu) =>
+          replier(contenu) === replier(changement.marqueEnregistree!) ||
+          // Le premier mot retiré en fin de titre (« Pulp » pour « Pulp Super Frost »).
+          replier(changement.marqueEnregistree!).startsWith(`${replier(contenu)} `)
       )
   )
 

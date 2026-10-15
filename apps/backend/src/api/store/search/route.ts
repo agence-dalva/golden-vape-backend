@@ -138,6 +138,7 @@ type SearchProduct = {
   subtitle: string | null
   handle: string
   image_url: string | null
+  marque: string | null
 }
 
 type QueriedVariant = {
@@ -311,9 +312,18 @@ async function searchProducts(
         p.subtitle,
         p.handle,
         p.thumbnail,
+        marque.value AS marque,
         ${fold("p.title")} AS titre,
         ${fold("coalesce(p.subtitle, '')")} AS sous_titre
       FROM product p
+      -- La marque enregistrée : affichée sur la carte, et elle range les résultats.
+      LEFT JOIN LATERAL (
+        SELECT min(pav.value) AS value
+        FROM product_attribute_value pav
+        JOIN attribute_type t ON t.id = pav.attribute_type_id
+        WHERE pav.product_id = p.id AND t.name = 'Marque'
+          AND pav.deleted_at IS NULL AND t.deleted_at IS NULL
+      ) marque ON true
       WHERE p.deleted_at IS NULL AND p.status = 'published'
     )
     SELECT
@@ -321,6 +331,7 @@ async function searchProducts(
       title,
       subtitle,
       handle,
+      marque,
       -- Le catalogue migré ne renseigne pas thumbnail : la première image fait foi.
       coalesce(
         thumbnail,
@@ -337,8 +348,9 @@ async function searchProducts(
        OR id IN (SELECT product_id FROM par_marque)
     -- Un mot trouvé dans le titre désigne le produit plus sûrement que le même mot noyé dans
     -- une liste de mots-clés : ces produits passent devant, et ceux trouvés par la seule
-    -- marque ferment la marche.
-    ORDER BY CASE WHEN (${allInTitle}) THEN 0 WHEN ${parTexte} THEN 1 ELSE 2 END, title
+    -- marque ferment la marche. Dans chaque groupe, les produits d'une même marque se
+    -- suivent : « pulp » couvre quatre gammes, qu'on distingue ainsi d'un coup d'œil.
+    ORDER BY CASE WHEN (${allInTitle}) THEN 0 WHEN ${parTexte} THEN 1 ELSE 2 END, marque NULLS LAST, title
     LIMIT ?
     `,
     [
@@ -367,6 +379,7 @@ async function searchProducts(
     subtitle: product.subtitle ?? null,
     handle: product.handle,
     image_url: product.image_url ?? null,
+    brand: product.marque ?? null,
     variants: detailed.get(product.id) ?? [],
   }))
 }
