@@ -110,6 +110,31 @@ function normalize(value: string): string {
 }
 
 /**
+ * Une lettre seule n'est pas un mot : « e-tasty » découpé en « e » et « tasty » laissait
+ * passer tout produit contenant « tasty » et un « e » quelque part. Elle est collée au mot
+ * suivant (au précédent si elle termine le terme) : « etasty », que la comparaison sans
+ * espaces retrouve dans « E-Tasty ». Les chiffres seuls restent des mots : « numbers 2 ».
+ * Même règle que `lib/search-terms` côté frontend, qui en tire le surlignage.
+ */
+function collerLettresIsolees(words: string[]): string[] {
+  const result: string[] = []
+  let enAttente = ""
+  for (const word of words) {
+    if (/^[a-z]$/.test(word)) {
+      enAttente += word
+      continue
+    }
+    result.push(enAttente + word)
+    enAttente = ""
+  }
+  if (enAttente) {
+    if (result.length) result[result.length - 1] += enAttente
+    else result.push(enAttente)
+  }
+  return result
+}
+
+/**
  * Les marques de vape s'écrivent indifféremment en un ou deux mots — « Geekvape » sur
  * l'emballage, « Geek Vape » dans le catalogue. On compare donc aussi les formes sans
  * espaces, sans quoi la graphie la plus courante ne trouverait rien.
@@ -189,7 +214,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
   // qui compte alors depuis la fin et retire des résultats au lieu d'en garder.
   const take = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT))
   const normalized = normalize(term)
-  const words = normalized.split(" ").filter(Boolean)
+  const words = collerLettresIsolees(normalized.split(" ").filter(Boolean))
   const collapsed = normalized.replace(/ /g, "")
 
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
