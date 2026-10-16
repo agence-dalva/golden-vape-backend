@@ -3,7 +3,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { verifySeal } from "../../../../modules/monetico/lib/seal"
 import { moneticoOptionsFromEnv } from "../../../../modules/monetico/lib/options"
 import {
-  ACCEPTED_RETURN_CODES,
+  paiementAccepte,
   type MoneticoConfirmation,
 } from "../../../../modules/monetico/service"
 import { confirmMoneticoPaymentWorkflow } from "../../../../workflows/confirm-monetico-payment"
@@ -46,6 +46,16 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
   const sessionId = received["texte-libre"]
   const codeRetour = received["code-retour"]
 
+  // Un sceau valide prouve la clé, pas le terminal : si le TPE de test partage la clé de
+  // production, ses notifications arriveraient ici scellées. Seul notre TPE fait foi.
+  if (received.TPE !== options.tpe) {
+    logger.warn(
+      `Monetico : notification ignorée, TPE ${received.TPE ?? "absent"} au lieu de ${options.tpe}.`
+    )
+    res.type("text/plain").send(ACK_OK)
+    return
+  }
+
   if (!sessionId) {
     logger.error("Monetico : notification sans identifiant de session dans « texte-libre ».")
     res.type("text/plain").send(ACK_OK)
@@ -66,12 +76,14 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
   // Enregistre le résultat puis, si le paiement est accepté, autorise la session et
   // finalise le panier. Une erreur ici ne doit pas produire d'accusé de réception :
   // Monetico rappellera l'interface.
+  const accepte = paiementAccepte(codeRetour, options.sandbox === true)
+
   await confirmMoneticoPaymentWorkflow(req.scope).run({
-    input: { sessionId, confirmation },
+    input: { sessionId, confirmation, accepte },
   })
 
   logger.info(
-    ACCEPTED_RETURN_CODES.includes(codeRetour)
+    accepte
       ? `Monetico : paiement accepté pour la référence ${received.reference}.`
       : `Monetico : paiement refusé (${codeRetour}) pour la référence ${received.reference}.`
   )

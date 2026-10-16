@@ -29,8 +29,17 @@ import type {
 import { toOperationalKey } from "./lib/seal"
 import type { MoneticoOptions } from "./types"
 
-/** Codes de l'interface « Retour » qui valent paiement accepté. */
-export const ACCEPTED_RETURN_CODES = ["paiement", "payetest"]
+/**
+ * Le code de l'interface « Retour » vaut-il paiement accepté ?
+ *
+ * « payetest » est le code des paiements de l'environnement de test : il n'est accepté
+ * qu'en mode test. En production, un formulaire scellé posté vers la plateforme de test
+ * et réglé avec une carte de test publique ne doit jamais valider une commande — si les
+ * deux environnements partagent la clé, son sceau serait pourtant valide.
+ */
+export function paiementAccepte(codeRetour: string | undefined, sandbox: boolean): boolean {
+  return codeRetour === "paiement" || (sandbox && codeRetour === "payetest")
+}
 
 /** Confirmation déposée sur la session par l'interface « Retour ». */
 export type MoneticoConfirmation = {
@@ -154,7 +163,7 @@ export default class MoneticoProviderService extends AbstractPaymentProvider<Mon
       return PaymentSessionStatus.PENDING
     }
 
-    if (!ACCEPTED_RETURN_CODES.includes(confirmation.code_retour)) {
+    if (!paiementAccepte(confirmation.code_retour, this.options.sandbox === true)) {
       return PaymentSessionStatus.ERROR
     }
 

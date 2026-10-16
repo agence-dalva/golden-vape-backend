@@ -7,14 +7,13 @@ import {
 } from "@medusajs/framework/workflows-sdk"
 import { Modules, PaymentActions } from "@medusajs/framework/utils"
 import { processPaymentWorkflow } from "@medusajs/medusa/core-flows"
-import {
-  ACCEPTED_RETURN_CODES,
-  type MoneticoConfirmation,
-} from "../modules/monetico/service"
+import type { MoneticoConfirmation } from "../modules/monetico/service"
 
 type ConfirmMoneticoPaymentInput = {
   sessionId: string
   confirmation: MoneticoConfirmation
+  /** Décidé par la route, qui connaît le mode (test ou production) : voir `paiementAccepte`. */
+  accepte: boolean
 }
 
 // Dépose sur la session le résultat vérifié de l'interface « Retour ». C'est cette donnée,
@@ -61,9 +60,7 @@ export const confirmMoneticoPaymentWorkflow = createWorkflow(
   (input: ConfirmMoneticoPaymentInput) => {
     const session = recordMoneticoConfirmationStep(input)
 
-    when({ input }, ({ input }) =>
-      ACCEPTED_RETURN_CODES.includes(input.confirmation.code_retour)
-    ).then(() => {
+    when({ input }, ({ input }) => input.accepte).then(() => {
       processPaymentWorkflow.runAsStep({
         input: {
           action: PaymentActions.AUTHORIZED,
