@@ -1,0 +1,26 @@
+# Contexte de build : la racine du dépôt (apps/backend/Dockerfile copie apps/backend/).
+# Docker ne lit que ce fichier-ci, pas celui d'apps/backend : sans lui, un build lancé
+# depuis un poste copierait les .env et les sauvegardes de la base dans l'étape de build.
+# Railway construit depuis git, où ces fichiers n'existent pas.
+
+**/node_modules
+**/.medusa
+**/.turbo
+**/dist
+**/coverage
+**/*.log
+.git
+
+# Secrets
+**/.env
+**/.env.*
+!**/.env.example
+
+# Sauvegardes et exports de la base : elles contiennent des données clients.
+**/db-backups
+**/*.dump
+**/*.sql
+
+# Fichiers d'import PrestaShop, lus par les scripts au lancement seulement.
+apps/backend/src/scripts/*.csv
+apps/backend/src/scripts/category_mapping.json
