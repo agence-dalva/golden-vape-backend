@@ -22,6 +22,13 @@ import type ProductAttributeModuleService from "../../../modules/product-attribu
 */
 const MIN_TERM_LENGTH = 3
 /*
+  Bornes hautes du terme. Sans elles, un terme de plusieurs milliers de mots — chacun un
+  paramètre lié et un LIKE par produit — occupait PostgreSQL, et en changer un mot à chaque
+  appel contournait le cache. Aucun client ne tape plus de cent caractères ni huit mots.
+*/
+const MAX_TERM_LENGTH = 100
+const MAX_WORDS = 8
+/*
   L'autocomplétion défile : mieux vaut une liste longue qu'un client convaincu que son produit
   n'existe pas parce qu'il n'entrait pas dans six lignes. Le panneau en montre une douzaine
   d'un coup et laisse défiler le reste.
@@ -199,8 +206,9 @@ function availableStock(variant: QueriedVariant): number | null {
 // GET /store/search?q=menthe&limit=6 — produits et marques en un seul appel.
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const debut = Date.now()
-  const { q, limit } = req.query as { q?: string; limit?: string }
-  const term = (q ?? "").trim()
+  const { q, limit } = req.query as { q?: unknown; limit?: string }
+  // `q[]=…` arrive en tableau : seul un texte est un terme.
+  const term = (typeof q === "string" ? q : "").trim().slice(0, MAX_TERM_LENGTH)
 
   // Avant toute chose, et avant le cache : une requête trop courte ne doit toucher ni Redis
   // ni PostgreSQL.
@@ -214,7 +222,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
   // qui compte alors depuis la fin et retire des résultats au lieu d'en garder.
   const take = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT))
   const normalized = normalize(term)
-  const words = collerLettresIsolees(normalized.split(" ").filter(Boolean))
+  const words = collerLettresIsolees(normalized.split(" ").filter(Boolean)).slice(0, MAX_WORDS)
   const collapsed = normalized.replace(/ /g, "")
 
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
