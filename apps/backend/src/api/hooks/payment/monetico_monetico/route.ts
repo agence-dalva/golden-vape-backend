@@ -1,5 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import { ecartNotification } from "../../../../modules/monetico/lib/notification"
 import { verifySeal } from "../../../../modules/monetico/lib/seal"
 import { moneticoOptionsFromEnv } from "../../../../modules/monetico/lib/options"
 import {
@@ -58,6 +59,19 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
 
   if (!sessionId) {
     logger.error("Monetico : notification sans identifiant de session dans « texte-libre ».")
+    res.type("text/plain").send(ACK_OK)
+    return
+  }
+
+  // La notification doit régler cette session-là, pour son montant : sinon elle n'est pas
+  // enregistrée — une confirmation déposée sur la session vaudrait paiement à la
+  // finalisation du panier. Une session introuvable lève une erreur, et Monetico rappelle.
+  const session = await req.scope.resolve(Modules.PAYMENT).retrievePaymentSession(sessionId)
+  const ecart = ecartNotification(received, session)
+  if (ecart) {
+    logger.error(
+      `Monetico : notification non prise en compte pour la session ${sessionId} — ${ecart}.`
+    )
     res.type("text/plain").send(ACK_OK)
     return
   }
