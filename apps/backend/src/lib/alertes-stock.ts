@@ -118,7 +118,9 @@ export async function traiterAlertesStock(
 
     const enAttente = await alertes.listAlerteStocks(
       { notified_at: null, ...(variantIds ? { variant_id: variantIds } : {}) },
-      { take: 1000 }
+      // Les plus anciennes d'abord : un afflux de demandes ne repousse pas celles des
+      // clients qui attendent depuis longtemps.
+      { take: 1000, order: { created_at: "ASC" } }
     )
     if (enAttente.length === 0) return { envoyees: 0, en_attente: 0 }
 

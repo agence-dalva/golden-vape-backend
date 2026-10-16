@@ -10,6 +10,17 @@ import type { CreerAlerteStockType } from "./validators"
 // d'articles à la fois.
 const DEMANDES_MAX_PAR_ADRESSE = 30
 
+/*
+  Plafond de nouvelles demandes, toutes adresses confondues, sur une heure glissante.
+
+  Le plafond par adresse n'arrête pas un robot qui inscrit des milliers d'adresses de tiers :
+  au retour en stock, la boutique leur écrirait à toutes, sous son nom de domaine. Une
+  limite par IP ne marcherait pas ici — le formulaire passe par le serveur du site, et toutes
+  les demandes arrivent de Vercel. Soixante par heure dépasse de loin le rythme d'une
+  boutique, et borne ce qu'un abus peut faire partir.
+*/
+const DEMANDES_MAX_PAR_HEURE = 60
+
 /**
  * POST /store/alertes-stock — « prévenez-moi du retour en stock ».
  *
@@ -35,6 +46,16 @@ export async function POST(req: MedusaRequest<CreerAlerteStockType>, res: Medusa
   if (!enAttente.some((a) => a.variant_id === variant_id)) {
     if (enAttente.length >= DEMANDES_MAX_PAR_ADRESSE) {
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Trop de demandes en attente pour cette adresse.")
+    }
+    const [, recentes] = await alertes.listAndCountAlerteStocks(
+      { created_at: { $gte: new Date(Date.now() - 60 * 60 * 1000) } },
+      { take: 1, select: ["id"] }
+    )
+    if (recentes >= DEMANDES_MAX_PAR_HEURE) {
+      throw new MedusaError(
+        MedusaError.Types.NOT_ALLOWED,
+        "Trop de demandes en ce moment, réessayez dans un moment."
+      )
     }
     await creerAlerteStockWorkflow(req.scope).run({ input: { email, variant_id } })
   }
