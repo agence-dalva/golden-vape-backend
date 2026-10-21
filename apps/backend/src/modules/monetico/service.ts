@@ -1,5 +1,6 @@
 import {
   AbstractPaymentProvider,
+  MathBN,
   MedusaError,
   PaymentActions,
   PaymentSessionStatus,
@@ -208,14 +209,29 @@ export default class MoneticoProviderService extends AbstractPaymentProvider<Mon
   }
 
   /**
-   * Le remboursement passe par un service serveur à serveur distinct
-   * (`recredit_paiement.cgi`) qui n'est pas encore branché : on refuse explicitement
-   * plutôt que de laisser Medusa croire que l'argent est reparti.
+   * Le remboursement se fait à la main dans le back-office Monetico : le service serveur à
+   * serveur (`recredit_paiement.cgi`) n'est pas branché. Ici on ne fait donc que l'inscrire.
+   *
+   * Refuser bloquerait l'annulation d'une commande payée, qui rembourse d'abord tout ce qui a
+   * été encaissé : la commande resterait active et la vente négative ne partirait jamais en
+   * caisse. Le marchand rembourse dans Monetico, puis annule dans Medusa.
    */
-  async refundPayment(_input: RefundPaymentInput): Promise<RefundPaymentOutput> {
-    throw new MedusaError(
-      MedusaError.Types.NOT_ALLOWED,
-      "Le remboursement Monetico n'est pas encore implémenté : il doit être effectué depuis le back-office Monetico."
+  async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
+    const data = input.data ?? {}
+    const reference = (data as MoneticoSessionData).reference ?? "?"
+    const montant = MathBN.convert(input.amount).toString()
+
+    this.logger_.warn(
+      `Monetico : remboursement de ${montant} € inscrit pour la référence ${reference}, sans appel à Monetico — à faire dans le back-office s'il ne l'est pas déjà.`
     )
+
+    const precedents = Array.isArray(data.remboursements_manuels) ? data.remboursements_manuels : []
+
+    return {
+      data: {
+        ...data,
+        remboursements_manuels: [...precedents, { montant, inscrit_le: new Date().toISOString() }],
+      },
+    }
   }
 }
