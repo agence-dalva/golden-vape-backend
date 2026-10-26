@@ -276,7 +276,9 @@ export async function addProductToSale(input: {
   product_price: string
   product_comments?: string
 }): Promise<void> {
-  await hiboutikFetch("/sales/add_product/", { method: "POST", body: input })
+  // Une ligne ajoutée par l'API ne déstocke pas par défaut (`stock_withdrawal` = 0), et la
+  // caisse refuse alors de clôturer la vente : on la marque déstockée dès l'ajout.
+  await hiboutikFetch("/sales/add_product/", { method: "POST", body: { ...input, stock_withdrawal: 1 } })
 }
 
 export type AttributVente = "ext_ref" | "payment" | "customer_id" | "vendor_id"
